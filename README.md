@@ -14,7 +14,7 @@ Non-goals:
 - Runtime performance
 - Eval performance
 
-A good place to start, other than this README, is [the Jupyter notebook](./mini_gato.ipynb)
+A good place to start, other than this README, is [the Jupyter notebook](./mugato.ipynb)
 
 # GATO
 
@@ -72,7 +72,7 @@ examples = [
 
 Those examples would be batched (collated?) to actually look like the following.
 
-Notice that padding.
+***Notice the padding.***
 
 - The first example had its episodes padded to 3.
 - The second example had its mission tokens padded to 4.
