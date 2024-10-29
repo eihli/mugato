@@ -14,7 +14,11 @@ Non-goals:
 - Runtime performance
 - Eval performance
 
+A good place to start, other than this README, is [the Jupyter notebook](./mini_gato.ipynb)
+
 # GATO
+
+![diagram of DeepMind's GATO architecture](./resources/images/gato.png)
 
 The GATO paper only describes a way of tokenizing and sequencing data so that we can feed it into a sequence model. They use a transformer for the model. But the architecture isn't really the point of the paper.
 
@@ -242,7 +246,7 @@ Let's bring it all together by viewing side-by-side a simple modality, like text
 
 
 ``` python
-# Text:**
+# Text:
 text_batch = {
 #                                            Batch
 #                                            |  Episodes
