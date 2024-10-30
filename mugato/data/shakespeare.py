@@ -8,13 +8,13 @@ from mugato.util import Timesteps, xdg_data_home, TransformDataset, generic_coll
 
 
 def initialize():
-    shakespeare_filepath = xdg_data_home/"shakespeare.txt"
+    shakespeare_filepath = xdg_data_home / "shakespeare.txt"
     if not os.path.exists(shakespeare_filepath):
-        data_url = 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'
-        with open(shakespeare_filepath, 'w', encoding='utf-8') as f:
+        data_url = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
+        with open(shakespeare_filepath, "w", encoding="utf-8") as f:
             f.write(requests.get(data_url).text)
 
-    with open(shakespeare_filepath, 'r', encoding='utf-8') as f:
+    with open(shakespeare_filepath, "r", encoding="utf-8") as f:
         data = f.read()
 
     # Split the dataset into each character's lines.
@@ -34,7 +34,6 @@ def initialize():
         sample += [characters_lines[i]]
         num_words_in_sample += len(characters_lines[i].split())
         i += 1
-
 
     num_samples = len(text_dataset)
     train_split = int(num_samples * 0.8)

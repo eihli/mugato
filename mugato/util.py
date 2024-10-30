@@ -12,7 +12,13 @@ from IPython.display import display, Image as IPythonImage
 import io
 
 
-xdg_data_home = Path(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")))
+xdg_data_home = Path(
+    os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
+)
+
+
+def as_tensor(x):
+    return x if isinstance(x, torch.Tensor) else torch.tensor(x)
 
 
 class Timesteps(OrderedDict):
@@ -20,7 +26,7 @@ class Timesteps(OrderedDict):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.device = 'cpu'
+        self.device = "cpu"
 
     def to(self, device):
         self.device = device
@@ -42,16 +48,21 @@ class TransformDataset(Dataset):
     def __getitem__(self, idx):
         return self.transform(self.dataset[idx])
 
+
 def generic_collate_fn(batch, sequence_length=1024):
     sliced = [
-        (slice_to_context_window(sequence_length, xs), slice_to_context_window(sequence_length, ys))
-         for xs, ys in batch
+        (
+            slice_to_context_window(sequence_length, xs),
+            slice_to_context_window(sequence_length, ys),
+        )
+        for xs, ys in batch
     ]
     # sliced is a (B, 2, ...) list.
     # the 2 is xs, ys
     xs, ys = [v for v in zip(*sliced)]
     xs, ys, ms = pad(xs), pad(ys), mask(ys)
     return xs, ys, ms
+
 
 # These next 5 functions are helpers for when we need have a sample with
 # a large number of episodes and creating a sequence from all of them would
@@ -62,16 +73,20 @@ def generic_collate_fn(batch, sequence_length=1024):
 def episode_num_tokens(sample):
     return sum([len(v[0]) for v in sample.values()])
 
+
 def sample_num_tokens(sample):
     return episode_num_tokens(sample) * next(iter(sample.values())).size(0)
 
+
 def sequence_episode_capacity(sequence_length, sample):
     return sequence_length // episode_num_tokens(sample)
+
 
 def random_episode_start_index(sequence_length, sample):
     n_eps = next(iter(sample.values())).size(0)
     cap = min(n_eps, sequence_episode_capacity(sequence_length, sample))
     return random.randint(0, n_eps - cap)
+
 
 def slice_to_context_window(sequence_length, sample):
     result = Timesteps()
@@ -82,7 +97,7 @@ def slice_to_context_window(sequence_length, sample):
             result[k] = sample[k][:, :sequence_length]
     else:
         for k in sample.keys():
-            result[k] = sample[k][n:n+m]
+            result[k] = sample[k][n : n + m]
     return result
 
 
@@ -96,13 +111,17 @@ def pad(batch, padding_value=0):
         episode_length = max(sample[k].size(0) for sample in batch)
         token_length = max(sample[k].size(1) for sample in batch)
         for sample in batch:
-            pad = (0, 0, 0, token_length - sample[k].size(1), 0, episode_length - sample[k].size(0))
+            pad = (
+                0,
+                0,
+                0,
+                token_length - sample[k].size(1),
+                0,
+                episode_length - sample[k].size(0),
+            )
             padded[k] = padded.get(k, [])
             padded[k].append(F.pad(sample[k], pad, value=0))
-    return Timesteps([
-        (k, torch.stack(v))
-        for k, v in padded.items()
-    ])
+    return Timesteps([(k, torch.stack(v)) for k, v in padded.items()])
 
 
 def mask(batch):
@@ -112,7 +131,7 @@ def mask(batch):
         token_lengths = [sample[k].size(1) for sample in batch]
         result[k] = torch.zeros(len(batch), max(episode_lengths), max(token_lengths))
         for i in range(len(batch)):
-            result[k][i][:episode_lengths[i], :token_lengths[i]] = 1
+            result[k][i][: episode_lengths[i], : token_lengths[i]] = 1
     return result
 
 
@@ -131,7 +150,7 @@ def tensor_as_gif(images):
     # https://pillow.readthedocs.io/en/stable/handbook/image-file-formats.html#gif
     image_list[0].save(
         buffer,
-        format='GIF',
+        format="GIF",
         save_all=True,
         append_images=image_list[1:],
         duration=100,
@@ -139,18 +158,22 @@ def tensor_as_gif(images):
     )
     buffer.seek(0)
     # https://ipython.readthedocs.io/en/8.27.0/api/generated/IPython.display.html
-    display(IPythonImage(data=buffer.getvalue(), format='gif'))
+    display(IPythonImage(data=buffer.getvalue(), format="gif"))
+
 
 def images_to_patches(images, patch_size=16):
-    return rearrange(images, 'c (h s1) (w s2) -> (h w) (c s1 s2)', s1=patch_size, s2=patch_size)
+    return rearrange(
+        images, "c (h s1) (w s2) -> (h w) (c s1 s2)", s1=patch_size, s2=patch_size
+    )
+
 
 def patches_to_images(patches, image_shape, patch_size=16):
     channels, height, width = image_shape
     patch_height = height // patch_size
     patch_width = width // patch_size
     reconstructed = rearrange(
-        patches, 
-        'b (ph pw) (c ps1 ps2) -> b c (ph ps1) (pw ps2)',
+        patches,
+        "b (ph pw) (c ps1 ps2) -> b c (ph ps1) (pw ps2)",
         ph=patch_height,
         pw=patch_width,
         ps1=patch_size,
@@ -158,12 +181,14 @@ def patches_to_images(patches, image_shape, patch_size=16):
     )
     return reconstructed
 
+
 def normalize_to_between_minus_one_plus_one(t: torch.Tensor):
     min_val, max_val = t.min(), t.max()
     if min_val == max_val:
         return torch.zeros_like(t)
     normalized = 2 * (t - min_val) / (max_val - min_val) - 1
     return normalized
+
 
 def apply_along_dimension(func, dim, tensor):
     tensor = tensor.transpose(0, dim)
@@ -173,18 +198,22 @@ def apply_along_dimension(func, dim, tensor):
     result = result.reshape(shape).transpose(0, dim)
     return result
 
+
 def discretize(x: torch.Tensor) -> torch.Tensor:
     bins = torch.linspace(x.min(), x.max(), steps=1024)
     tokens = torch.bucketize(x, bins)
     return tokens
+
 
 def undiscretize(tokens: torch.Tensor, original_min: float, original_max: float):
     bins = torch.linspace(original_min, original_max, steps=1025)
     bin_centers = (bins[:-1] + bins[1:]) / 2
     return bin_centers[tokens]
 
+
 def interleave(tensors):
     return torch.cat(tensors, dim=1)
+
 
 def deinterleave(splits, tensors):
     return torch.split(tensors, splits, dim=1)
