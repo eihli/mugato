@@ -3,7 +3,7 @@ import os
 import re
 import requests
 import torch
-from torch.data.util import DataLoader
+from torch.utils.data import DataLoader
 from mugato.util import Timesteps, xdg_data_home, TransformDataset, generic_collate_fn
 
 
@@ -51,7 +51,7 @@ def initialize():
 
 def create_dataloader(tokenizer, batch_size, split="train"):
     dataset = initialize()
-    dataset = TransformDataset(dataset[split], partial(tokenize_shakespeare, tokenizer))
+    dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
     return DataLoader(dataset, batch_size=batch_size, collate_fn=generic_collate_fn)
 
 
