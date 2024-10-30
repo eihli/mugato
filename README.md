@@ -36,21 +36,21 @@ Consider the following example, typical of an agent/robotics dataset:
 ``` python
 examples = [
     {
-        # Continuous/Discrete/Text looks like this:
+        # Continuous/Discrete/Text are tokenized to a shape like this:
         #
         #                                 Episodes
         #                                 |  Tokens
         #                                 |  |  Channels
         #                                 |  |  |
         'mission': torch.arange(2*4).view(2, 4, 1),
-        # Images look like this:
+        # Images are tokenized (via ResNet) to a shape like this:
         #
         #                                      Episodes
-        #                                      |  Height
-        #                                      |    |    Width
-        #                                      |    |    |  Channels
-        #                                      |    |    |  |
-        'image': torch.randn(2*256*256*3).view(2, 256, 256, 3),
+        #                                      |    Patches
+        #                                      |    |    Channels
+        #                                      |    |    |
+        #                                      |    |    |
+        'image': torch.randn(2*256*256*3).view(2, 256, 768),
         'action': torch.arange(2*1).view(2, 1, 1),
     },
     {
@@ -60,11 +60,11 @@ examples = [
         #                                 |  |  |
         'mission': torch.arange(3*3).view(3, 3, 1),
         #                                      Episodes
-        #                                      |  Height
-        #                                      |    |    Width
-        #                                      |    |    |  Channels
-        #                                      |    |    |  |
-        'image': torch.randn(3*256*256*3).view(3, 256, 256, 3),
+        #                                      |    Patches
+        #                                      |    |    Channels
+        #                                      |    |    |
+        #                                      |    |    |
+        'image': torch.randn(3*256*256*3).view(3, 256, 768),
         'action': torch.arange(3*1).view(3, 1, 1),
     },
 ]
@@ -79,26 +79,27 @@ Those examples would be batched (collated?) to actually look like the following.
 
 ``` python
 batch = {
-    # Continuous/Discrete/Text looks like this:
+    # Continuous/Discrete/Text are shaped like this:
     #                                   Batch
     #                                   |  Episodes
     #                                   |  |  Tokens
     #                                   |  |  |  Channels
     #                                   |  |  |  |
     'mission': torch.arange(2*3*4).view(2, 3, 4, 1),
-    # Images look like this:
+    # Images are shaped like this:
     #                                        Batch
     #                                        |  Episodes
-    #                                        |  |  Height
-    #                                        |  |    |  Width
-    #                                        |  |    |    |  Channels
-    #                                        |  |    |    |  |
-    'image': torch.randn(2*3*256*256*3).view(2, 3, 256, 256, 3),
+    #                                        |  |  Patches
+    #                                        |  |    |  Channels
+    #                                        |  |    |    |
+    'image': torch.randn(2*3*256*256*3).view(2, 3, 256, 768),
     'action': torch.arange(2*3*1).view(2, 3, 1, 1),
 }
 ```
 
-Eventually, we'll want to `concat` along the `tokens` rank. (At this point, their more like "timesteps" than "tokens". But it's easy to get "timesteps" conflated with "episodes" when dealing with agent/robotics datasets. Just keep that in mind.)
+That might look kinda weird. Why is the `mission`, a text sequence, getting *tokenized* with a *channels* dimension? Well... `image` can't be tokenized *without* channels, and it's nice when every tensor has the same shape – it makes the code simpler.
+
+Eventually, we'll want to `concat` along the `tokens` rank. (At this point, they're more like "timesteps" than "tokens". But it's easy to get "timesteps" conflated with "episodes" when dealing with agent/robotics datasets. Just keep that in mind.)
 
 Before we can concat along the tokens rank, we'll have to give everything the same number of channel dimensions. That means we can only do this after we've embedded. But once we do that, then the batch will look like this before we concat along the tokens dimension.
 
@@ -158,7 +159,7 @@ tensor([[15137,  4776,   290,  3598,   812,  2084,   986,     0,     0,     0,  
         [   43, 29625,   220,  2419,   388,   288, 45621,  1650,   716,   316,   986]])
 ```
 
-That's a `(3, 11)` tensor that we can immediately embed as a `(3, 768)` batch of embeddings and bam! We're done.
+That's a `(3, 11)` tensor that we can immediately embed as a `(3, 11, 768)` batch of embeddings and bam! We're done.
 
 But:
 
@@ -230,17 +231,6 @@ batch = {
 ```
 
 Once we concat all of our keys along the tokens dimension, then we'll... well... concatting in this case will basically be a no-op because we only have a single key: "text".
-
-``` python
-#                    Batch
-#                    |   Episodes
-#                    |   |    Mission Tokens
-#                    |   |    |    Image Tokens
-#                    |   |    |    |    Action Tokens
-#                    |   |    |    |    |      Channels 
-#                    |   |    |    |    |      |
-batch = torch.arange(2 * 3 * (4 + 256 + 1) * 768).view(...),
-```
 
 Let's bring it all together by viewing side-by-side a simple modality, like text, and a complex modality, like robotics.
 
