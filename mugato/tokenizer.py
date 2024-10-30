@@ -52,10 +52,12 @@ class Tokenizer:
         return (tokens - self.n_text).squeeze(-1).tolist()
 
     def encode_continuous(self, xs):
-        return self.encode_discrete(discretize(xs)), xs.min(), xs.max()
+        return self.encode_discrete(discretize(xs)), min(xs), max(xs)
 
     def decode_continuous(self, tokens, original_min=0, original_max=1):
-        return undiscretize(self.decode_discrete(tokens), original_min, original_max)
+        return undiscretize(
+            self.decode_discrete(tokens), original_min, original_max
+        ).tolist()
 
     def encode_image(self, image, patch_size=16):
         patches = image_to_patches(image, patch_size=patch_size)

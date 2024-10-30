@@ -27,12 +27,13 @@ import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
-from model import GPTConfig, GPT
+from mugato.nano_gpt import GPTConfig, GPT
+from mugato.util import data_home, select_device
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
-out_dir = "out"
+out_dir = data_home / "out"
 eval_interval = 2000
 log_interval = 1
 eval_iters = 200
@@ -41,7 +42,7 @@ always_save_checkpoint = True  # if True, always save a checkpoint after each ev
 init_from = "scratch"  # 'scratch' or 'resume' or 'gpt2*'
 # wandb logging
 wandb_log = False  # disabled by default
-wandb_project = "owt"
+wandb_project = "mugato"
 wandb_run_name = "gpt2"  # 'run' + str(time.time())
 # data
 dataset = "openwebtext"
@@ -69,9 +70,7 @@ min_lr = 6e-5  # minimum learning rate, should be ~= learning_rate/10 per Chinch
 # DDP settings
 backend = "nccl"  # 'nccl', 'gloo', etc.
 # system
-device = (
-    "cuda"  # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
-)
+device = select_device()
 dtype = (
     "bfloat16"
     if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
@@ -95,7 +94,7 @@ if ddp:
     ddp_rank = int(os.environ["RANK"])
     ddp_local_rank = int(os.environ["LOCAL_RANK"])
     ddp_world_size = int(os.environ["WORLD_SIZE"])
-    device = f"cuda:{ddp_local_rank}"
+    device = f"{device}:{ddp_local_rank}"
     torch.cuda.set_device(device)
     master_process = ddp_rank == 0  # this process will do logging, checkpointing etc.
     seed_offset = ddp_rank  # each process gets a different seed
@@ -116,6 +115,9 @@ if master_process:
 torch.manual_seed(1337 + seed_offset)
 torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
 torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
+# TODO: What changes need to be made to support mpu and tpu?
+#       We're trying to handle all 4 - see `select_device`.
+#       But this code still only handles cuda and cpu.
 device_type = "cuda" if "cuda" in device else "cpu"  # for later use in torch.autocast
 # note: float16 data type will automatically use a GradScaler
 ptdtype = {

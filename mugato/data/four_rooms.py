@@ -4,7 +4,9 @@ import torch
 
 from mugato.util import image_transform, Timesteps
 
+
 def initialize():
+    pass
 
 
 # Some FourRooms/Minigrid-specific stuff to turn

@@ -15,10 +15,32 @@ import io
 xdg_data_home = Path(
     os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
 )
+data_home = xdg_data_home / "mugato"
 
 
 def as_tensor(x):
     return x if isinstance(x, torch.Tensor) else torch.tensor(x)
+
+
+def select_device(device):
+    # Check for TPU support (requires torch_xla library)
+    try:
+        import torch_xla.core.xla_model as xm
+
+        tpu_available = xm.xla_device_hw() == "TPU"
+    except ImportError:
+        tpu_available = False
+
+    # Set device based on availability
+    if tpu_available:
+        device = xm.xla_device()  # For GCP TPU
+    elif torch.cuda.is_available():
+        device = torch.device("cuda")  # For NVIDIA GPUs
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")  # For Apple Silicon (macOS with MPS)
+    else:
+        device = torch.device("cpu")  # Fallback to CPU
+    return device
 
 
 class Timesteps(OrderedDict):

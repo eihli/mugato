@@ -4,12 +4,13 @@ import re
 import requests
 import torch
 from torch.utils.data import DataLoader
-from mugato.util import Timesteps, xdg_data_home, TransformDataset, generic_collate_fn
+from mugato.util import Timesteps, data_home, TransformDataset, generic_collate_fn
 
 
 def initialize():
-    shakespeare_filepath = xdg_data_home / "shakespeare.txt"
+    shakespeare_filepath = data_home / "shakespeare.txt"
     if not os.path.exists(shakespeare_filepath):
+        os.makedirs(data_home, exist_ok=True)
         data_url = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
         with open(shakespeare_filepath, "w", encoding="utf-8") as f:
             f.write(requests.get(data_url).text)
