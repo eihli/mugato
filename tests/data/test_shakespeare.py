@@ -1,6 +1,5 @@
 import pytest
-import torch
-from mugato.data.shakespeare import initialize, tokenize, create_dataloader
+from mugato.data.shakespeare import initialize, create_dataloader
 from mugato.tokenizer import Tokenizer
 import tiktoken
 

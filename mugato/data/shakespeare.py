@@ -4,7 +4,8 @@ import re
 import requests
 import torch
 from torch.utils.data import DataLoader
-from mugato.util import Timesteps, data_home, TransformDataset, generic_collate_fn
+from mugato.data.utils import splits
+from mugato.utils import Timesteps, data_home, TransformDataset, generic_collate_fn
 
 
 def initialize():
@@ -36,23 +37,12 @@ def initialize():
         num_words_in_sample += len(characters_lines[i].split())
         i += 1
 
-    num_samples = len(text_dataset)
-    train_split = int(num_samples * 0.8)
-    val_split = int(num_samples * 0.9)
-    train_data = text_dataset[:train_split]
-    val_data = text_dataset[train_split:val_split]
-    test_data = text_dataset[val_split:]
+    train_data, val_data, test_data = splits(text_dataset)
     return {
         "train": train_data,
         "val": val_data,
         "test": test_data,
     }
-
-
-def create_dataloader(tokenizer, batch_size, split="train"):
-    dataset = initialize()
-    dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
-    return DataLoader(dataset, batch_size=batch_size, collate_fn=generic_collate_fn)
 
 
 def tokenize(tokenizer, sample):
@@ -69,3 +59,9 @@ def tokenize(tokenizer, sample):
         }
     )
     return xs, ys
+
+
+def create_dataloader(tokenizer, batch_size, split="train"):
+    dataset = initialize()
+    dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
+    return DataLoader(dataset, batch_size=batch_size, collate_fn=generic_collate_fn)

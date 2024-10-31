@@ -2,7 +2,7 @@ import math
 from typing import List, Protocol
 from einops import rearrange
 import torch
-from mugato.util import as_tensor
+from mugato.utils import as_tensor
 
 
 class TextTokenizer(Protocol):

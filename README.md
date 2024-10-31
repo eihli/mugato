@@ -2,6 +2,8 @@
 
 A small, simple implementation of what's described in [DeepMind's GATO paper](https://arxiv.org/abs/2205.06175).
 
+This project aims to serve as small, understandable, baseline model for the [MultiNet Benchmark](https://github.com/ManifoldRG/MultiNet) from [Manifold Research](https://www.manifoldrg.com).
+
 Goals:
 
 - Clarity
