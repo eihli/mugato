@@ -30,6 +30,7 @@ dependencies = [
     "tqdm==4.66.6",
     "tiktoken==0.8.0",
     "torch==2.5.1",
+    "wandb==0.18.5",
 ]
 
 [project.optional-dependencies]
