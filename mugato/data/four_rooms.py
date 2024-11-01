@@ -4,15 +4,20 @@ import minari
 import minigrid
 import torch
 from torch.utils.data import DataLoader
-from mugato.utils import Timesteps, TransformDataset, generic_collate_fn, image_transform
+from mugato.utils import (
+    Timesteps,
+    TransformDataset,
+    generic_collate_fn,
+    image_transform,
+)
 
 
 def initialize():
     # See: https://minari.farama.org/api/minari_dataset/minari_dataset/
     # You can't slice a Minari Dataset. But you can set the episode_indices.
-    train_data = minari.load_dataset('D4RL/minigrid/fourrooms-v0', download=True)
-    val_data = minari.load_dataset('D4RL/minigrid/fourrooms-v0', download=True)
-    test_data = minari.load_dataset('D4RL/minigrid/fourrooms-v0', download=True)
+    train_data = minari.load_dataset("D4RL/minigrid/fourrooms-v0", download=True)
+    val_data = minari.load_dataset("D4RL/minigrid/fourrooms-v0", download=True)
+    test_data = minari.load_dataset("D4RL/minigrid/fourrooms-v0", download=True)
     train_split = int(train_data.total_episodes * 0.8)
     val_split = int(train_data.total_episodes * 0.9)
     # NOTE: Order matters here!
@@ -29,6 +34,7 @@ def initialize():
         "val": val_data,
         "test": test_data,
     }
+
 
 # Some FourRooms/Minigrid-specific stuff to turn
 # a 7x7x3 non-pixel observation into an pixel/image observation.
@@ -91,6 +97,7 @@ def tokenize(tokenizer, episode):
         }
     )
     return xs, ys
+
 
 def create_dataloader(tokenizer, batch_size, split="train"):
     dataset = initialize()

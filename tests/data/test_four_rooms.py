@@ -12,7 +12,7 @@ def tokenizer():
 def test_initialize():
     data = initialize()
     assert "train" in data
-    assert "val" in data 
+    assert "val" in data
     assert "test" in data
     print(len(data["train"]), len(data["val"]), len(data["test"]))
     assert len(data["train"]) > 0
@@ -28,7 +28,7 @@ def test_create_dataloader(tokenizer):
     batch = next(iter(dataloader))
     xs, ys, mask = batch
     assert isinstance(xs, dict)
-    assert isinstance(ys, dict) 
+    assert isinstance(ys, dict)
     assert isinstance(mask, dict)
 
     # Check expected keys exist
@@ -43,11 +43,11 @@ def test_create_dataloader(tokenizer):
         assert key in mask
         assert ys[key].shape[0] == batch_size
         assert mask[key].shape[0] == batch_size
-    
+
     raw_data = initialize()
-    raw_sample = raw_data['train'][0]
-    raw_mission = raw_sample.observations['mission'][0]
-    mission = xs['mission'][0, 0]
+    raw_sample = raw_data["train"][0]
+    raw_mission = raw_sample.observations["mission"][0]
+    mission = xs["mission"][0, 0]
     decoded_mission = tokenizer.decode_text(mission)
     assert decoded_mission == raw_mission
 
@@ -63,4 +63,3 @@ def test_create_dataloader(tokenizer):
     # raw_actions = raw_sample.actions
     # decoded_actions = tokenizer.decode_discrete(ys['action'][0].squeeze(-1))
     # assert decoded_actions == raw_actions
-

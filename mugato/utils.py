@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 import torch.nn.functional as F
+from torchvision.transforms.functional import pil_to_tensor
 import torchvision.transforms.v2 as transforms
 from PIL import Image
 from IPython.display import display, Image as IPythonImage
@@ -20,16 +21,22 @@ data_home = xdg_data_home / "mugato"
 
 
 normalize = transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-denormalize = transforms.Normalize([-0.485/0.229, -0.456/0.224, -0.406/0.255], [1/0.229, 1/0.224, 1/0.225])
+denormalize = transforms.Normalize(
+    [-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.255], [1 / 0.229, 1 / 0.224, 1 / 0.225]
+)
 
-image_transform = transforms.Compose([
-    transforms.ToDtype(torch.float32, scale=True),
-    transforms.RandomResizedCrop((192, 192), (1.0, 1.0)),
-    normalize,
-])
+image_transform = transforms.Compose(
+    [
+        transforms.ToDtype(torch.float32, scale=True),
+        transforms.RandomResizedCrop((192, 192), (1.0, 1.0)),
+        normalize,
+    ]
+)
 
 
 def as_tensor(x):
+    if isinstance(x, Image.Image):
+        return pil_to_tensor(x)
     return x if isinstance(x, torch.Tensor) else torch.tensor(x)
 
 
