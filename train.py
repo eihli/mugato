@@ -28,7 +28,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
 from mugato.nano_gpt import GPTConfig, GPT
-from mugato.util import data_home, select_device
+from mugato.utils import data_home, select_device
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -131,7 +131,7 @@ ctx = (
     else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 )
 
-from mugato.data import create_combined_dataloader, Tokenizer
+from mugato.data.utils import create_combined_dataloader, Tokenizer
 import tiktoken
 
 text_tokenizer = tiktoken.get_encoding("r50k_base")
@@ -142,6 +142,8 @@ test_dataloader = create_combined_dataloader(tokenizer, batch_size, split="test"
 
 
 def get_batch(split):
+    # We recreate np.memmap every batch to avoid a memory leak, as per
+    # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
     if split == "train":
         return next(train_dataloader)
     elif split == "val":
@@ -155,10 +157,7 @@ iter_num = 0
 best_val_loss = 1e9
 
 # attempt to derive vocab_size from the dataset
-from mugato.utils import xdg_data_home
-
-data_dir = xdg_data_home
-meta_path = os.path.join(data_dir, "meta.pkl")
+meta_path = os.path.join(data_home, "meta.pkl")
 meta_vocab_size = None
 if os.path.exists(meta_path):
     with open(meta_path, "rb") as f:
