@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from torchvision.models import ResNetV2
 import tiktoken
 
 from mugato.nano_gpt import LayerNorm, Block, GPTConfig
@@ -15,7 +16,6 @@ from typing import Callable
 
 @dataclass
 class Embedder:
-    tokenizer: Tokenizer
     lookup_embedding: Callable
     image_embedding: Callable
 
@@ -113,9 +113,7 @@ class Mugato(torch.nn.Module):
         self.image_embedding = ResNetV2(
             layers=[3, 4, 6, 3], num_classes=self.config.n_embd
         )
-        self.embedder = Embedder(
-            self.config.tokenizer, self.lookup_embedding, self.image_embedding
-        )
+        self.embedder = Embedder(self.lookup_embedding, self.image_embedding)
         # TODO:
         # Since we're doing our own embedding, we need to handle our own
         # position embedding.
@@ -165,6 +163,3 @@ class Mugato(torch.nn.Module):
             logits = model.lm_head(xs)
             loss = None
         return logits, loss
-
-
-model = MiniGato(default_config).to(device)
