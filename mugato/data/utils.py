@@ -47,7 +47,7 @@ def find_datasets():
 def initialize_all():
     dataset_modules = find_datasets()
     datasets = {}
-    for dataset_module in dataset_modules:
+    for dataset_module in sorted(dataset_modules, key=lambda x: x.__name__):
         datasets[dataset_module.__name__] = dataset_module.initialize()
     return datasets
 

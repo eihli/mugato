@@ -27,6 +27,7 @@ import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
+from mugato.mugato import MugatoConfig, Mugato, Transformer, TransformerConfig
 from mugato.nano_gpt import GPTConfig, GPT
 from mugato.utils import data_home, select_device
 
@@ -135,38 +136,27 @@ from mugato.data.utils import create_combined_dataloader, Tokenizer
 import tiktoken
 
 text_tokenizer = tiktoken.get_encoding("r50k_base")
-tokenizer = Tokenizer()
-train_dataloader = create_combined_dataloader(tokenizer, batch_size)
-val_dataloader = create_combined_dataloader(tokenizer, batch_size, split="val")
-test_dataloader = create_combined_dataloader(tokenizer, batch_size, split="test")
+tokenizer = Tokenizer(text_tokenizer)
+train_dataloader = iter(create_combined_dataloader(tokenizer, batch_size))
+val_dataloader = iter(create_combined_dataloader(tokenizer, batch_size, split="val"))
+test_dataloader = iter(create_combined_dataloader(tokenizer, batch_size, split="test"))
 
 
 def get_batch(split):
-    # We recreate np.memmap every batch to avoid a memory leak, as per
-    # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
     if split == "train":
-        return next(train_dataloader)
+        return next(next(train_dataloader))
     elif split == "val":
-        return next(val_dataloader)
+        return next(next(val_dataloader))
     elif split == "test":
-        return next(test_dataloader)
+        return next(next(test_dataloader))
 
 
 # init these up here, can override if init_from='resume' (i.e. from a checkpoint)
 iter_num = 0
 best_val_loss = 1e9
 
-# attempt to derive vocab_size from the dataset
-meta_path = os.path.join(data_home, "meta.pkl")
-meta_vocab_size = None
-if os.path.exists(meta_path):
-    with open(meta_path, "rb") as f:
-        meta = pickle.load(f)
-    meta_vocab_size = meta["vocab_size"]
-    print(f"found vocab_size = {meta_vocab_size} (inside {meta_path})")
-
 # model init
-model_args = dict(
+transformer_model_args = dict(
     n_layer=n_layer,
     n_head=n_head,
     n_embd=n_embd,
@@ -175,17 +165,19 @@ model_args = dict(
     vocab_size=None,
     dropout=dropout,
 )  # start with model_args from command line
+
+mugato_model_args = dict(
+    n_embd=n_embd,
+    dropout=dropout,
+)
+
 if init_from == "scratch":
     # init a new model from scratch
     print("Initializing a new model from scratch")
-    # determine the vocab size we'll use for from-scratch training
-    if meta_vocab_size is None:
-        print(
-            "defaulting to vocab_size of GPT-2 to 50304 (50257 rounded up for efficiency)"
-        )
-    model_args["vocab_size"] = meta_vocab_size if meta_vocab_size is not None else 50304
-    gptconf = GPTConfig(**model_args)
-    model = GPT(gptconf)
+    sequence_model = Transformer(TransformerConfig(**transformer_model_args))
+    mugato_model_args["vocab_size"] = tokenizer.n_text + tokenizer.n_discrete
+    mugato_config = MugatoConfig(**mugato_model_args)
+    model = Mugato(sequence_model, mugato_config)
 elif init_from == "resume":
     print(f"Resuming training from {out_dir}")
     # resume training from a checkpoint.
@@ -195,10 +187,12 @@ elif init_from == "resume":
     # force these config attributes to be equal otherwise we can't even resume training
     # the rest of the attributes (e.g. dropout) can stay as desired from command line
     for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size"]:
-        model_args[k] = checkpoint_model_args[k]
+        transformer_model_args[k] = checkpoint_model_args[k]
     # create the model
-    gptconf = GPTConfig(**model_args)
-    model = GPT(gptconf)
+    sequence_model = Transformer(TransformerConfig(**transformer_model_args))
+    mugato_model_args["vocab_size"] = tokenizer.n_text + tokenizer.n_discrete
+    mugato_config = MugatoConfig(**mugato_model_args)
+    model = Mugato(sequence_model, mugato_config)
     state_dict = checkpoint["model"]
     # fix the keys of the state dictionary :(
     # honestly no idea how checkpoints sometimes get this prefix, have to debug more
@@ -216,17 +210,17 @@ elif init_from.startswith("gpt2"):
     model = GPT.from_pretrained(init_from, override_args)
     # read off the created config params, so we can store them into checkpoint correctly
     for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size"]:
-        model_args[k] = getattr(model.config, k)
+        transformer_model_args[k] = getattr(model.config, k)
 # crop down the model block size if desired, using model surgery
 if block_size < model.config.block_size:
     model.crop_block_size(block_size)
-    model_args["block_size"] = (
+    transformer_model_args["block_size"] = (
         block_size  # so that the checkpoint will have the right value
     )
 model.to(device)
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
-scaler = torch.cuda.amp.GradScaler(enabled=(dtype == "float16"))
+scaler = torch.amp.GradScaler(enabled=(dtype == "float16"))
 
 # optimizer
 optimizer = model.configure_optimizers(
@@ -320,7 +314,7 @@ while True:
                 checkpoint = {
                     "model": raw_model.state_dict(),
                     "optimizer": optimizer.state_dict(),
-                    "model_args": model_args,
+                    "model_args": transformer_model_args,
                     "iter_num": iter_num,
                     "best_val_loss": best_val_loss,
                     "config": config,

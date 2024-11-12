@@ -119,7 +119,6 @@ class MLP(nn.Module):
 
 
 class Block(nn.Module):
-
     def __init__(self, config):
         super().__init__()
         self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
@@ -149,7 +148,6 @@ class GPTConfig:
 
 
 class GPT(nn.Module):
-
     def __init__(self, config):
         super().__init__()
         assert config.vocab_size is not None
