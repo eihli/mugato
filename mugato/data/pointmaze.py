@@ -39,8 +39,11 @@ def tokenize(tokenizer, sample):
         tokenizer.encode_continuous(torch.from_numpy(observation)) 
         for observation in sample.observations["observation"][:-1]
     ]
+    observation_tokens, observation_min, observation_max = zip(*observation_tokens)
     goal_tokens = [tokenizer.encode_continuous(torch.from_numpy(goal)) for goal in sample.observations["desired_goal"][:-1]]
+    goal_tokens, goal_min, goal_max = zip(*goal_tokens)
     action_tokens = [tokenizer.encode_continuous(torch.from_numpy(action)) for action in sample.actions]
+    action_tokens, action_min, action_max = zip(*action_tokens)
     action_tokens = [
         torch.concat([tokenizer.encode_discrete([tokenizer.separator]), action])
         for action in action_tokens

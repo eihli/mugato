@@ -34,6 +34,7 @@ def find_datasets():
     for _, name, _ in pkgutil.iter_modules(mugato.data.__path__):
         try:
             module = importlib.import_module(f"mugato.data.{name}")
+            module = importlib.reload(module)  # TODO: hacky thing to get thing working...
             if all(
                 hasattr(module, attr)
                 for attr in ["initialize", "tokenize", "create_dataloader"]

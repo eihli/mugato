@@ -4,11 +4,11 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from torchvision.models import ResNetV2
+from timm.models.resnetv2 import ResNetV2
 import tiktoken
 
 from mugato.nano_gpt import LayerNorm, Block, GPTConfig
-from mugato.data import Tokenizer
+from mugato.tokenizer import Tokenizer
 from mugato.utils import select_device
 
 from typing import Callable, Optional
@@ -75,10 +75,9 @@ def sequence(embedder, xs, ys=None, ms=None, sequence_length=1024, pad=True):
 
 @dataclass
 class MugatoConfig:
-    tokenizer: Tokenizer
     device: str = select_device()
     n_embd: int = 512
-    sequence_length: int = 1024
+    block_size: int = 1024
     vocab_size: int = 51281  # text vocab + discrete vocab
 
 
@@ -88,16 +87,8 @@ def init_default_config(transformer_model_args: GPTConfig) -> MugatoConfig:
     transformer_config = GPTConfig(**transformer_model_args)
     return MugatoConfig(
         tokenizer=tokenizer,
-        transformer_config=transformer_config,
-        sequence_length=1024,
-        vocab_size=tokenizer.vocab_size,
     )
 
-
-transformer_model_args = dict(
-    n_layer=4, n_head=4, n_embd=512, block_size=1024, bias=False, dropout=0.0
-)  # start with model_args from command line
-default_config = init_default_config(transformer_model_args)
 
 @dataclass
 class TransformerConfig:
@@ -117,7 +108,7 @@ class Transformer(nn.Module):
         self.transformer = nn.ModuleDict(
             dict(
                 wte=nn.Embedding(config.vocab_size, config.n_embd),
-                wpe=nn.Embedding(config.sequence_length, config.n_embd),
+                wpe=nn.Embedding(config.block_size, config.n_embd),
                 drop=nn.Dropout(config.dropout),
                 h=nn.ModuleList(
                     [
@@ -128,6 +119,7 @@ class Transformer(nn.Module):
                 ln_f=LayerNorm(config.n_embd, bias=config.bias),
             )
         )
+
 class Mugato(torch.nn.Module):
     def __init__(
         self,
@@ -139,25 +131,25 @@ class Mugato(torch.nn.Module):
         self.config = config
         self.tokenizer = tokenizer
         self.device = torch.device(self.config.device)
-            
+
         # Initialize components
         self.lookup_embedding = torch.nn.Embedding(
-            self.config.vocab_size, 
+            self.config.vocab_size,
             self.config.n_embd
         ).to(self.device)
-        
+
         self.image_embedding = ResNetV2(
-            layers=[3, 4, 6, 3], 
+            layers=[3, 4, 6, 3],
             num_classes=self.config.n_embd
         ).to(self.device)
-        
+
         self.embedder = Embedder(self.lookup_embedding, self.image_embedding)
         # TODO:
         # Since we're doing our own embedding, we need to handle our own
         # position embedding.
         self.transformer = sequence_model
         self.lm_head = torch.nn.Linear(
-            self.config.n_embd, 
+            self.config.n_embd,
             self.config.vocab_size
         ).to(self.device)
 
@@ -191,3 +183,34 @@ class Mugato(torch.nn.Module):
             logits = self.lm_head(xs)
             loss = None
         return logits, loss
+
+    def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
+        # start with all of the candidate parameters
+        param_dict = {pn: p for pn, p in self.named_parameters()}
+        # filter out those that do not require grad
+        param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
+        # create optim groups. Any parameters that is 2D will be weight decayed, otherwise no.
+        # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
+        decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
+        nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
+        optim_groups = [
+            {"params": decay_params, "weight_decay": weight_decay},
+            {"params": nodecay_params, "weight_decay": 0.0},
+        ]
+        num_decay_params = sum(p.numel() for p in decay_params)
+        num_nodecay_params = sum(p.numel() for p in nodecay_params)
+        print(
+            f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters"
+        )
+        print(
+            f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters"
+        )
+        # Create AdamW optimizer and use the fused version if it is available
+        fused_available = "fused" in inspect.signature(torch.optim.AdamW).parameters
+        use_fused = fused_available and device_type == "cuda"
+        extra_args = dict(fused=True) if use_fused else dict()
+        optimizer = torch.optim.AdamW(
+            optim_groups, lr=learning_rate, betas=betas, **extra_args
+        )
+        print(f"using fused AdamW: {use_fused}")
+        return optimizer

@@ -40,7 +40,7 @@ def as_tensor(x):
     return x if isinstance(x, torch.Tensor) else torch.tensor(x)
 
 
-def select_device(device):
+def select_device():
     # Check for TPU support (requires torch_xla library)
     try:
         import torch_xla.core.xla_model as xm

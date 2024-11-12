@@ -351,7 +351,6 @@ class GPT(nn.Module):
             optim_groups, lr=learning_rate, betas=betas, **extra_args
         )
         print(f"using fused AdamW: {use_fused}")
-
         return optimizer
 
     def estimate_mfu(self, fwdbwd_per_iter, dt):

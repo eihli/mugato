@@ -23,12 +23,15 @@ import pickle
 from contextlib import nullcontext
 
 import numpy as np
+import tiktoken
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 
 from mugato.mugato import MugatoConfig, Mugato, Transformer, TransformerConfig
+from mugato.tokenizer import Tokenizer
 from mugato.nano_gpt import GPTConfig, GPT
+from mugato.data.utils import create_combined_dataloader
 from mugato.utils import data_home, select_device
 
 # -----------------------------------------------------------------------------
@@ -119,7 +122,8 @@ torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
 # TODO: What changes need to be made to support mpu and tpu?
 #       We're trying to handle all 4 - see `select_device`.
 #       But this code still only handles cuda and cpu.
-device_type = "cuda" if "cuda" in device else "cpu"  # for later use in torch.autocast
+device_type = "cuda"  # TODO: if "cuda" in device else "cpu"  # for later use in torch.autocast
+
 # note: float16 data type will automatically use a GradScaler
 ptdtype = {
     "float32": torch.float32,
@@ -131,9 +135,6 @@ ctx = (
     if device_type == "cpu"
     else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 )
-
-from mugato.data.utils import create_combined_dataloader, Tokenizer
-import tiktoken
 
 text_tokenizer = tiktoken.get_encoding("r50k_base")
 tokenizer = Tokenizer(text_tokenizer)
@@ -162,22 +163,22 @@ transformer_model_args = dict(
     n_embd=n_embd,
     block_size=block_size,
     bias=bias,
-    vocab_size=None,
+    vocab_size=50257,  # tiktoken.get_encoding("r50k_base").n_vocab
     dropout=dropout,
 )  # start with model_args from command line
 
 mugato_model_args = dict(
     n_embd=n_embd,
-    dropout=dropout,
+    block_size=block_size,
+    vocab_size=51281,  # text vocab + discrete vocab
 )
 
 if init_from == "scratch":
     # init a new model from scratch
     print("Initializing a new model from scratch")
     sequence_model = Transformer(TransformerConfig(**transformer_model_args))
-    mugato_model_args["vocab_size"] = tokenizer.n_text + tokenizer.n_discrete
     mugato_config = MugatoConfig(**mugato_model_args)
-    model = Mugato(sequence_model, mugato_config)
+    model = Mugato(tokenizer, sequence_model, mugato_config)
 elif init_from == "resume":
     print(f"Resuming training from {out_dir}")
     # resume training from a checkpoint.
