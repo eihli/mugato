@@ -3,3 +3,4 @@ __pycache__
 .aider*
 .env
 .virtual_documents
+wandb
