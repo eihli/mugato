@@ -7,17 +7,19 @@ from torch.utils.data import DataLoader
 from mugato.data.utils import splits
 from mugato.utils import Timesteps, data_home, TransformDataset, generic_collate_fn
 
+
 def initialize():
     dataset = load_dataset("Salesforce/wikitext", "wikitext-103-raw-v1")
     return {
-        "train": dataset['train'],
-        "val": dataset['validation'],
-        "test": dataset['test'],
+        "train": dataset["train"],
+        "val": dataset["validation"],
+        "test": dataset["test"],
     }
+
 
 def tokenize(tokenizer, sample, block_size=1024):
     eot = torch.tensor([[tokenizer.eot_token_id]], dtype=torch.long)
-    text = sample['text']
+    text = sample["text"]
     if len(text) > block_size:
         start = random.randint(0, len(text) - (block_size + 1))
         end = min(start + block_size, len(text))
@@ -42,6 +44,7 @@ def tokenize(tokenizer, sample, block_size=1024):
         }
     )
     return xs, ys
+
 
 def create_dataloader(tokenizer, batch_size, split="train"):
     dataset = initialize()

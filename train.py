@@ -17,6 +17,7 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123
 
 Credit to Andrej Karpathy. This code is adapted from [nanoGPT](https://github.com/karpathy/nanoGPT).
 """
+
 import os
 import time
 import math
@@ -125,7 +126,9 @@ torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
 # TODO: What changes need to be made to support mpu and tpu?
 #       We're trying to handle all 4 - see `select_device`.
 #       But this code still only handles cuda and cpu.
-device_type = "cuda"  # TODO: if "cuda" in device else "cpu"  # for later use in torch.autocast
+device_type = (
+    "cuda"  # TODO: if "cuda" in device else "cpu"  # for later use in torch.autocast
+)
 
 # note: float16 data type will automatically use a GradScaler
 ptdtype = {
@@ -141,9 +144,21 @@ ctx = (
 
 text_tokenizer = tiktoken.get_encoding("r50k_base")
 tokenizer = Tokenizer(text_tokenizer)
-train_dataloader = iter(create_combined_dataloader(tokenizer, batch_size, split="train", block_size=block_size))
-val_dataloader = iter(create_combined_dataloader(tokenizer, batch_size, split="val", block_size=block_size))
-test_dataloader = iter(create_combined_dataloader(tokenizer, batch_size, split="test", block_size=block_size))
+train_dataloader = iter(
+    create_combined_dataloader(
+        tokenizer, batch_size, split="train", block_size=block_size
+    )
+)
+val_dataloader = iter(
+    create_combined_dataloader(
+        tokenizer, batch_size, split="val", block_size=block_size
+    )
+)
+test_dataloader = iter(
+    create_combined_dataloader(
+        tokenizer, batch_size, split="test", block_size=block_size
+    )
+)
 
 
 def get_batch(split, device):
@@ -187,10 +202,7 @@ if init_from == "scratch":
             wpe=nn.Embedding(transformer_config.block_size, transformer_config.n_embd),
             drop=nn.Dropout(transformer_config.dropout),
             h=nn.ModuleList(
-                [
-                    Block(transformer_config)
-                    for _ in range(transformer_config.n_layer)
-                ]
+                [Block(transformer_config) for _ in range(transformer_config.n_layer)]
             ),
         )
     )
@@ -213,10 +225,7 @@ elif init_from == "resume":
             wpe=nn.Embedding(transformer_config.block_size, transformer_config.n_embd),
             drop=nn.Dropout(transformer_config.dropout),
             h=nn.ModuleList(
-                [
-                    Block(transformer_config)
-                    for _ in range(transformer_config.n_layer)
-                ]
+                [Block(transformer_config) for _ in range(transformer_config.n_layer)]
             ),
         )
     )
@@ -273,6 +282,8 @@ if ddp:
 
 # helps estimate an arbitrarily accurate loss over either split using many batches
 split = "train"
+
+
 @torch.no_grad()
 def estimate_loss():
     out = {}
@@ -280,7 +291,9 @@ def estimate_loss():
     for split in ["train", "val"]:
         losses = torch.zeros(eval_iters)
         for k in tqdm(range(eval_iters)):
-            X, Y, M = get_batch(split, device)  # TODO: *Must* I return masks in get batch? Why?
+            X, Y, M = get_batch(
+                split, device
+            )  # TODO: *Must* I return masks in get batch? Why?
             with ctx:
                 logits, loss = model(X, Y, M)
             losses[k] = loss.item()
@@ -307,6 +320,7 @@ def get_lr(it):
 # logging
 if wandb_log and master_process:
     import wandb
+
     wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
 # training loop

@@ -104,6 +104,7 @@ class TransformerConfig:
         True  # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     )
 
+
 class Mugato(torch.nn.Module):
     def __init__(
         self,
@@ -118,13 +119,11 @@ class Mugato(torch.nn.Module):
 
         # Initialize components
         self.lookup_embedding = torch.nn.Embedding(
-            self.config.vocab_size,
-            self.config.n_embd
+            self.config.vocab_size, self.config.n_embd
         ).to(self.device)
 
         self.image_embedding = ResNetV2(
-            layers=[3, 4, 6, 3],
-            num_classes=self.config.n_embd
+            layers=[3, 4, 6, 3], num_classes=self.config.n_embd
         ).to(self.device)
 
         self.embedder = Embedder(self.lookup_embedding, self.image_embedding)
@@ -132,14 +131,20 @@ class Mugato(torch.nn.Module):
         # Since we're doing our own embedding, we need to handle our own
         # position embedding.
         self.transformer = sequence_model  # TODO: rename to sequence_model?
-        self.lm_head = torch.nn.Linear(
-            self.config.n_embd,
-            self.config.vocab_size
-        ).to(self.device)
+        self.lm_head = torch.nn.Linear(self.config.n_embd, self.config.vocab_size).to(
+            self.device
+        )
 
     def forward(self, xs, ys=None, ms=None, pad=True):
         if ys is not None:
-            tok_emb, ys, ms = sequence(self.embedder, xs, ys, ms, pad=pad, sequence_length=self.config.block_size)
+            tok_emb, ys, ms = sequence(
+                self.embedder,
+                xs,
+                ys,
+                ms,
+                pad=pad,
+                sequence_length=self.config.block_size,
+            )
             b, t, c = tok_emb.size()
             pos = torch.arange(0, t, dtype=torch.long, device=self.device)  # shape (t)
             pos_emb = self.transformer.wpe(

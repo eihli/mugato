@@ -260,11 +260,17 @@ def mu_law_encode(x, M=256, mu=100):
     x_mu = x_mu / torch.log(M * mu + 1.0)
     return x_mu
 
+
 def mu_law_decode(x_mu, M=256, mu=100):
     M = torch.tensor(M, dtype=x_mu.dtype)
     mu = torch.tensor(mu, dtype=x_mu.dtype)
-    x = torch.sign(x_mu) * (torch.exp(torch.abs(x_mu) * torch.log(M * mu + 1.0)) - 1.0) / mu
+    x = (
+        torch.sign(x_mu)
+        * (torch.exp(torch.abs(x_mu) * torch.log(M * mu + 1.0)) - 1.0)
+        / mu
+    )
     return x
+
 
 def clamp(x):
     return torch.clamp(x, -1, 1)

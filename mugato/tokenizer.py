@@ -2,7 +2,14 @@ import math
 from typing import List, Protocol
 from einops import rearrange
 import torch
-from mugato.utils import as_tensor, mu_law_encode, mu_law_decode, clamp, discretize, undiscretize
+from mugato.utils import (
+    as_tensor,
+    mu_law_encode,
+    mu_law_decode,
+    clamp,
+    discretize,
+    undiscretize,
+)
 
 
 class TextTokenizer(Protocol):
@@ -26,7 +33,9 @@ class Tokenizer:
         self.vocab_size = self.n_text + self.n_discrete
 
     def encode_text(self, text):
-        return torch.tensor(self.text_tokenizer.encode(text), dtype=torch.long).unsqueeze(-1)
+        return torch.tensor(
+            self.text_tokenizer.encode(text), dtype=torch.long
+        ).unsqueeze(-1)
 
     def decode_text(self, tokens):
         return self.text_tokenizer.decode(tokens.squeeze(-1).tolist())
@@ -38,12 +47,16 @@ class Tokenizer:
         return (tokens - self.n_text).squeeze(-1).tolist()
 
     def encode_continuous(self, xs):
-        return self.encode_discrete(discretize(clamp(mu_law_encode(xs)))), min(xs), max(xs)
+        return (
+            self.encode_discrete(discretize(clamp(mu_law_encode(xs)))),
+            min(xs),
+            max(xs),
+        )
 
     def decode_continuous(self, tokens, original_min, original_max):
-        return mu_law_decode(undiscretize(
-            self.decode_discrete(tokens), original_min, original_max
-        )).tolist()
+        return mu_law_decode(
+            undiscretize(self.decode_discrete(tokens), original_min, original_max)
+        ).tolist()
 
     def encode_image(self, image, patch_size=16):
         patches = image_to_patches(image, patch_size=patch_size)

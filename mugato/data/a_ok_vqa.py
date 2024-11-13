@@ -13,6 +13,7 @@ from mugato.utils import (
 )
 from datasets import load_dataset
 
+
 def example():
     """Demonstrate the shape of the original dataset.
 
@@ -34,12 +35,13 @@ def example():
     }
     """
 
+
 def initialize():
     dataset = load_dataset("HuggingFaceM4/A-OKVQA")
     return {
-        "train": dataset['train'],
-        "val": dataset['validation'],
-        "test": dataset['test'],
+        "train": dataset["train"],
+        "val": dataset["validation"],
+        "test": dataset["test"],
     }
 
 
@@ -51,19 +53,25 @@ def tokenize(tokenizer, sample):
     rational = random.choice(sample["rationales"])
     if random.random() < 0.5:
         answer = [
-            torch.concat([
-                eot,
-                tokenizer.encode_text(answer),
-                eot,
-            ])
+            torch.concat(
+                [
+                    eot,
+                    tokenizer.encode_text(answer),
+                    eot,
+                ]
+            )
         ]
     else:
         answer = [
-            torch.concat([
-                eot,
-                tokenizer.encode_text(f"{answer.upper()}, because {rational[0].lower()}{rational[1:]}"),
-                eot,
-            ])
+            torch.concat(
+                [
+                    eot,
+                    tokenizer.encode_text(
+                        f"{answer.upper()}, because {rational[0].lower()}{rational[1:]}"
+                    ),
+                    eot,
+                ]
+            )
         ]
     question = torch.stack(question)
     image = torch.stack(image)
