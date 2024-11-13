@@ -23,8 +23,8 @@ Status:
 - [✅] [mugato.ipynb](./mugato.ipynb) is an interactive notebook with cells that demonstrate the behavior described in the paper
 - [✅] [data/](./mugato/data/four_rooms.py) directory has clear, simple examples of manipulating datasets making them easy for the model to use as training data
 - [🚧] [mugato.ipynb](./mugato.ipynb) cells are ordered for optimal consumption and is thoroughly documented with markdown cells and interactive elements
-- [🚧] [mugato.py](./mugato.py) implements the model in a way that makes it easy to swap out a transformer for any other sequence model
-- [🚧] [train.py](./train.py) is a simple demonstration of a distributed training loop
+- [✅] [mugato.py](./mugato.py) implements the model in a way that makes it easy to swap out a transformer for any other sequence model
+- [✅] [train.py](./train.py) is a simple demonstration of a multi-GPU training loop
 
 # GATO
 
