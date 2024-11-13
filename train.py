@@ -63,7 +63,7 @@ dropout = 0.0  # for pretraining 0 is good, for finetuning try 0.1+
 bias = False  # do we use bias inside LayerNorm and Linear layers?
 # adamw optimizer
 learning_rate = 6e-4  # max learning rate
-max_iters = 600000  # total number of training iterations
+max_iters = 20  # total number of training iterations
 weight_decay = 1e-1
 beta1 = 0.9
 beta2 = 0.95
@@ -71,7 +71,7 @@ grad_clip = 1.0  # clip gradients at this value, or disable if == 0.0
 # learning rate decay settings
 decay_lr = True  # whether to decay the learning rate
 warmup_iters = 2000  # how many steps to warm up for
-lr_decay_iters = 600000  # should be ~= max_iters per Chinchilla
+lr_decay_iters = max_iters  # should be ~= max_iters per Chinchilla
 min_lr = 6e-5  # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
 # DDP settings
 backend = "nccl"  # 'nccl', 'gloo', etc.
@@ -259,7 +259,7 @@ if compile:
 
 # wrap model into DDP container
 if ddp:
-    model = DDP(model, device_ids=[ddp_local_rank])
+    model = DDP(model, device_ids=[ddp_local_rank], find_unused_parameters=True)
 
 
 # helps estimate an arbitrarily accurate loss over either split using many batches
@@ -302,13 +302,12 @@ if wandb_log and master_process:
     wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
 # training loop
-X, Y = get_batch("train")  # fetch the very first batch
+X, Y, M = get_batch("train", device)  # fetch the very first batch
 t0 = time.time()
 local_iter_num = 0  # number of iterations in the lifetime of this process
 raw_model = model.module if ddp else model  # unwrap DDP container if needed
 running_mfu = -1.0
 while True:
-
     # determine and set the learning rate for this iteration
     lr = get_lr(iter_num) if decay_lr else learning_rate
     for param_group in optimizer.param_groups:
@@ -363,7 +362,7 @@ while True:
                 loss / gradient_accumulation_steps
             )  # scale the loss to account for gradient accumulation
         # immediately async prefetch next batch while model is doing the forward pass on the GPU
-        X, Y = get_batch("train")
+        X, Y, M = get_batch("train", device)
         # backward pass, with gradient scaling if training in fp16
         scaler.scale(loss).backward()
     # clip the gradient
