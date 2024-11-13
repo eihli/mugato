@@ -17,7 +17,7 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123
 
 Credit to Andrej Karpathy. This code is adapted from [nanoGPT](https://github.com/karpathy/nanoGPT).
 """
-
+from datetime import datetime, timezone
 import os
 import time
 import math
@@ -49,9 +49,9 @@ eval_only = False  # if True, script exits right after the first eval
 always_save_checkpoint = True  # if True, always save a checkpoint after each eval
 init_from = "scratch"  # 'scratch' or 'resume' or 'gpt2*'
 # wandb logging
-wandb_log = False  # disabled by default
+wandb_log = True  # disabled by default
 wandb_project = "mugato"
-wandb_run_name = "alpha"  # 'run' + str(time.time())
+wandb_run_name = f"alpha-{datetime.now().isoformat()[:-7]}"
 # data
 dataset = "openwebtext"
 gradient_accumulation_steps = 5 * 8  # used to simulate larger batch sizes
