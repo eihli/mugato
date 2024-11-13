@@ -36,7 +36,9 @@ class Embedder:
                 B, E, T, -1
             )
         else:
-            return self.lookup_embedding(data.view(B * E * T)).view(B, E, T, -1)
+            # Zero grad dummy pass for image params
+            dummy = sum(p.sum() * 0 for p in self.image_embedding.parameters())
+            return self.lookup_embedding(data.view(B * E * T)).view(B, E, T, -1) + dummy
 
 
 def sequence(embedder, xs, ys=None, ms=None, sequence_length=1024, pad=True):

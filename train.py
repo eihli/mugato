@@ -40,16 +40,16 @@ from mugato.utils import data_home, select_device
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
 out_dir = data_home / "out"
-eval_interval = 2000
+eval_interval = 100
 log_interval = 1
-eval_iters = 8
+eval_iters = 2
 eval_only = False  # if True, script exits right after the first eval
 always_save_checkpoint = True  # if True, always save a checkpoint after each eval
 init_from = "scratch"  # 'scratch' or 'resume' or 'gpt2*'
 # wandb logging
 wandb_log = False  # disabled by default
 wandb_project = "mugato"
-wandb_run_name = "gpt2"  # 'run' + str(time.time())
+wandb_run_name = "alpha"  # 'run' + str(time.time())
 # data
 dataset = "openwebtext"
 gradient_accumulation_steps = 5 * 8  # used to simulate larger batch sizes
@@ -63,14 +63,14 @@ dropout = 0.0  # for pretraining 0 is good, for finetuning try 0.1+
 bias = False  # do we use bias inside LayerNorm and Linear layers?
 # adamw optimizer
 learning_rate = 6e-4  # max learning rate
-max_iters = 20  # total number of training iterations
+max_iters = 6000  # total number of training iterations
 weight_decay = 1e-1
 beta1 = 0.9
 beta2 = 0.95
 grad_clip = 1.0  # clip gradients at this value, or disable if == 0.0
 # learning rate decay settings
 decay_lr = True  # whether to decay the learning rate
-warmup_iters = 2000  # how many steps to warm up for
+warmup_iters = 100  # how many steps to warm up for
 lr_decay_iters = max_iters  # should be ~= max_iters per Chinchilla
 min_lr = 6e-5  # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
 # DDP settings
@@ -83,7 +83,7 @@ dtype = (
     else "float16"
 )  # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 dtype = "float16"
-compile = False  # use PyTorch 2.0 to compile the model to be faster
+compile = True  # use PyTorch 2.0 to compile the model to be faster
 # -----------------------------------------------------------------------------
 config_keys = [
     k
@@ -138,7 +138,6 @@ ctx = (
     if device_type == "cpu"
     else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 )
-ctx = nullcontext()
 
 text_tokenizer = tiktoken.get_encoding("r50k_base")
 tokenizer = Tokenizer(text_tokenizer)
@@ -185,7 +184,6 @@ if init_from == "scratch":
     transformer_config = TransformerConfig(**transformer_model_args)
     transformer = nn.ModuleDict(
         dict(
-            wte=nn.Embedding(transformer_config.vocab_size, transformer_config.n_embd),
             wpe=nn.Embedding(transformer_config.block_size, transformer_config.n_embd),
             drop=nn.Dropout(transformer_config.dropout),
             h=nn.ModuleList(
@@ -194,7 +192,6 @@ if init_from == "scratch":
                     for _ in range(transformer_config.n_layer)
                 ]
             ),
-            ln_f=LayerNorm(transformer_config.n_embd, bias=transformer_config.bias),
         )
     )
     mugato_config = MugatoConfig(**mugato_model_args)
@@ -203,17 +200,28 @@ elif init_from == "resume":
     print(f"Resuming training from {out_dir}")
     # resume training from a checkpoint.
     ckpt_path = os.path.join(out_dir, "ckpt.pt")
-    checkpoint = torch.load(ckpt_path, map_location=device)
+    checkpoint = torch.load(ckpt_path, map_location=device, weights_only=True)
     checkpoint_model_args = checkpoint["model_args"]
     # force these config attributes to be equal otherwise we can't even resume training
     # the rest of the attributes (e.g. dropout) can stay as desired from command line
     for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size"]:
         transformer_model_args[k] = checkpoint_model_args[k]
     # create the model
-    sequence_model = Transformer(TransformerConfig(**transformer_model_args))
-    mugato_model_args["vocab_size"] = tokenizer.n_text + tokenizer.n_discrete
+    transformer_config = TransformerConfig(**transformer_model_args)
+    transformer = nn.ModuleDict(
+        dict(
+            wpe=nn.Embedding(transformer_config.block_size, transformer_config.n_embd),
+            drop=nn.Dropout(transformer_config.dropout),
+            h=nn.ModuleList(
+                [
+                    Block(transformer_config)
+                    for _ in range(transformer_config.n_layer)
+                ]
+            ),
+        )
+    )
     mugato_config = MugatoConfig(**mugato_model_args)
-    model = Mugato(sequence_model, mugato_config)
+    model = Mugato(tokenizer, transformer, mugato_config)
     state_dict = checkpoint["model"]
     # fix the keys of the state dictionary :(
     # honestly no idea how checkpoints sometimes get this prefix, have to debug more
@@ -254,12 +262,13 @@ checkpoint = None  # free up memory
 # compile the model
 if compile:
     print("compiling the model... (takes a ~minute)")
+    torch._dynamo.config.optimize_ddp = False
     unoptimized_model = model
     model = torch.compile(model)  # requires PyTorch 2.0
 
 # wrap model into DDP container
 if ddp:
-    model = DDP(model, device_ids=[ddp_local_rank], find_unused_parameters=True)
+    model = DDP(model, device_ids=[ddp_local_rank])
 
 
 # helps estimate an arbitrarily accurate loss over either split using many batches
@@ -298,7 +307,6 @@ def get_lr(it):
 # logging
 if wandb_log and master_process:
     import wandb
-
     wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
 # training loop
