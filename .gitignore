@@ -4,3 +4,4 @@ __pycache__
 .env
 .virtual_documents
 wandb
+.vscode/

@@ -26,7 +26,7 @@ class Tokenizer:
         self.vocab_size = self.n_text + self.n_discrete
 
     def encode_text(self, text):
-        return torch.tensor(self.text_tokenizer.encode(text)).unsqueeze(-1)
+        return torch.tensor(self.text_tokenizer.encode(text), dtype=torch.long).unsqueeze(-1)
 
     def decode_text(self, tokens):
         return self.text_tokenizer.decode(tokens.squeeze(-1).tolist())

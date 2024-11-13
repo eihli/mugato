@@ -46,7 +46,7 @@ def initialize():
 
 
 def tokenize(tokenizer, sample):
-    eot = torch.tensor([[tokenizer.eot_token_id]])
+    eot = torch.tensor([[tokenizer.eot_token_id]], dtype=torch.long)
     text = torch.stack([torch.concat([eot, tokenizer.encode_text(sample), eot])])
     xs = Timesteps(
         {
