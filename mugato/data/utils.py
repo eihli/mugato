@@ -53,7 +53,7 @@ def initialize_all():
     return datasets
 
 
-def create_combined_dataloader(tokenizer, batch_size, split="train"):
+def create_combined_dataloader(tokenizer, batch_size, split="train", block_size=1024):
     datasets = initialize_all()
     all_datasets = []
 
@@ -71,7 +71,7 @@ def create_combined_dataloader(tokenizer, batch_size, split="train"):
                     DataLoader,
                     dataset,
                     batch_size=batch_size,
-                    collate_fn=generic_collate_fn,
+                    collate_fn=partial(generic_collate_fn, sequence_length=block_size),
                 )
             )
             for dataset in all_datasets

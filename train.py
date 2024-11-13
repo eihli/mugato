@@ -25,12 +25,14 @@ from contextlib import nullcontext
 import numpy as np
 import tiktoken
 import torch
+import torch.nn as nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
+from tqdm import tqdm
 
-from mugato.mugato import MugatoConfig, Mugato, Transformer, TransformerConfig
+from mugato.mugato import MugatoConfig, Mugato, TransformerConfig
 from mugato.tokenizer import Tokenizer
-from mugato.nano_gpt import GPTConfig, GPT
+from mugato.nano_gpt import GPTConfig, GPT, Block, LayerNorm
 from mugato.data.utils import create_combined_dataloader
 from mugato.utils import data_home, select_device
 
@@ -40,7 +42,7 @@ from mugato.utils import data_home, select_device
 out_dir = data_home / "out"
 eval_interval = 2000
 log_interval = 1
-eval_iters = 200
+eval_iters = 8
 eval_only = False  # if True, script exits right after the first eval
 always_save_checkpoint = True  # if True, always save a checkpoint after each eval
 init_from = "scratch"  # 'scratch' or 'resume' or 'gpt2*'
@@ -80,7 +82,8 @@ dtype = (
     if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
     else "float16"
 )  # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
-compile = True  # use PyTorch 2.0 to compile the model to be faster
+dtype = "float16"
+compile = False  # use PyTorch 2.0 to compile the model to be faster
 # -----------------------------------------------------------------------------
 config_keys = [
     k
@@ -135,21 +138,24 @@ ctx = (
     if device_type == "cpu"
     else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 )
+ctx = nullcontext()
 
 text_tokenizer = tiktoken.get_encoding("r50k_base")
 tokenizer = Tokenizer(text_tokenizer)
-train_dataloader = iter(create_combined_dataloader(tokenizer, batch_size))
-val_dataloader = iter(create_combined_dataloader(tokenizer, batch_size, split="val"))
-test_dataloader = iter(create_combined_dataloader(tokenizer, batch_size, split="test"))
+train_dataloader = iter(create_combined_dataloader(tokenizer, batch_size, split="train", block_size=block_size))
+val_dataloader = iter(create_combined_dataloader(tokenizer, batch_size, split="val", block_size=block_size))
+test_dataloader = iter(create_combined_dataloader(tokenizer, batch_size, split="test", block_size=block_size))
 
 
-def get_batch(split):
+def get_batch(split, device):
     if split == "train":
-        return next(next(train_dataloader))
+        X, Y, M = next(next(train_dataloader))
     elif split == "val":
-        return next(next(val_dataloader))
+        X, Y, M = next(next(val_dataloader))
     elif split == "test":
-        return next(next(test_dataloader))
+        X, Y, M = next(next(test_dataloader))
+    X, Y, M = X.to(device), Y.to(device), M.to(device)
+    return X, Y, M
 
 
 # init these up here, can override if init_from='resume' (i.e. from a checkpoint)
@@ -176,9 +182,23 @@ mugato_model_args = dict(
 if init_from == "scratch":
     # init a new model from scratch
     print("Initializing a new model from scratch")
-    sequence_model = Transformer(TransformerConfig(**transformer_model_args))
+    transformer_config = TransformerConfig(**transformer_model_args)
+    transformer = nn.ModuleDict(
+        dict(
+            wte=nn.Embedding(transformer_config.vocab_size, transformer_config.n_embd),
+            wpe=nn.Embedding(transformer_config.block_size, transformer_config.n_embd),
+            drop=nn.Dropout(transformer_config.dropout),
+            h=nn.ModuleList(
+                [
+                    Block(transformer_config)
+                    for _ in range(transformer_config.n_layer)
+                ]
+            ),
+            ln_f=LayerNorm(transformer_config.n_embd, bias=transformer_config.bias),
+        )
+    )
     mugato_config = MugatoConfig(**mugato_model_args)
-    model = Mugato(tokenizer, sequence_model, mugato_config)
+    model = Mugato(tokenizer, transformer, mugato_config)
 elif init_from == "resume":
     print(f"Resuming training from {out_dir}")
     # resume training from a checkpoint.
@@ -243,16 +263,17 @@ if ddp:
 
 
 # helps estimate an arbitrarily accurate loss over either split using many batches
+split = "train"
 @torch.no_grad()
 def estimate_loss():
     out = {}
     model.eval()
     for split in ["train", "val"]:
         losses = torch.zeros(eval_iters)
-        for k in range(eval_iters):
-            X, Y = get_batch(split)
+        for k in tqdm(range(eval_iters)):
+            X, Y, M = get_batch(split, device)  # TODO: *Must* I return masks in get batch? Why?
             with ctx:
-                logits, loss = model(X, Y)
+                logits, loss = model(X, Y, M)
             losses[k] = loss.item()
         out[split] = losses.mean()
     model.train()
@@ -337,7 +358,7 @@ while True:
                 micro_step == gradient_accumulation_steps - 1
             )
         with ctx:
-            logits, loss = model(X, Y)
+            logits, loss = model(X, Y, M)
             loss = (
                 loss / gradient_accumulation_steps
             )  # scale the loss to account for gradient accumulation

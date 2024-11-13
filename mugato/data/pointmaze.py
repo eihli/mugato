@@ -36,7 +36,7 @@ def initialize():
 
 def tokenize(tokenizer, sample):
     observation_tokens = [
-        tokenizer.encode_continuous(torch.from_numpy(observation)) 
+        tokenizer.encode_continuous(torch.from_numpy(observation))
         for observation in sample.observations["observation"][:-1]
     ]
     observation_tokens, observation_min, observation_max = zip(*observation_tokens)

@@ -130,8 +130,8 @@ def random_episode_start_index(sequence_length, sample):
 
 def slice_to_context_window(sequence_length, sample):
     result = Timesteps()
-    n = random_episode_start_index(1024, sample)
-    m = sequence_episode_capacity(1024, sample)
+    n = random_episode_start_index(sequence_length, sample)
+    m = sequence_episode_capacity(sequence_length, sample)
     if m < 1:
         for k in sample.keys():
             result[k] = sample[k][:, :sequence_length]
@@ -239,16 +239,35 @@ def apply_along_dimension(func, dim, tensor):
     return result
 
 
-def discretize(x: torch.Tensor) -> torch.Tensor:
-    bins = torch.linspace(x.min(), x.max(), steps=1024)
+def discretize(x):
+    x = as_tensor(x)
+    bins = torch.linspace(x.min(), x.max(), steps=1023)
     tokens = torch.bucketize(x, bins)
-    return tokens
+    return tokens.tolist()
 
 
-def undiscretize(tokens: torch.Tensor, original_min: float, original_max: float):
+# This is going to be a lossy decode. Nothing you can do about that.
+def undiscretize(x, original_min, original_max):
     bins = torch.linspace(original_min, original_max, steps=1025)
     bin_centers = (bins[:-1] + bins[1:]) / 2
-    return bin_centers[tokens]
+    return bin_centers[x]
+
+
+def mu_law_encode(x, M=256, mu=100):
+    M = torch.tensor(M, dtype=x.dtype)
+    mu = torch.tensor(mu, dtype=x.dtype)
+    x_mu = torch.sign(x) * torch.log(torch.abs(x) * mu + 1.0)
+    x_mu = x_mu / torch.log(M * mu + 1.0)
+    return x_mu
+
+def mu_law_decode(x_mu, M=256, mu=100):
+    M = torch.tensor(M, dtype=x_mu.dtype)
+    mu = torch.tensor(mu, dtype=x_mu.dtype)
+    x = torch.sign(x_mu) * (torch.exp(torch.abs(x_mu) * torch.log(M * mu + 1.0)) - 1.0) / mu
+    return x
+
+def clamp(x):
+    return torch.clamp(x, -1, 1)
 
 
 def interleave(tensors):

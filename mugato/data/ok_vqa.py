@@ -1,7 +1,7 @@
 from functools import partial
 import random
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from mugato.data.utils import splits
 from mugato.utils import (
     Timesteps,
@@ -18,8 +18,8 @@ def initialize():
     train_data = dataset["train"]
     # I happen to know this is a dataset of 80 train and 20 val.
     # I'm going to just split the val 50/50 to create a test set.
-    val_data = dataset["validation"][:10]
-    test_data = dataset["validation"][10:]
+    val_data = dataset["validation"].select(range(10))
+    test_data = dataset["validation"].select(range(10, 20))
     return {
         "train": train_data,
         "val": val_data,

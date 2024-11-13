@@ -7,7 +7,7 @@ from torch.nn import functional as F
 from timm.models.resnetv2 import ResNetV2
 import tiktoken
 
-from mugato.nano_gpt import LayerNorm, Block, GPTConfig
+from mugato.nano_gpt import GPTConfig
 from mugato.tokenizer import Tokenizer
 from mugato.utils import select_device
 
@@ -102,24 +102,6 @@ class TransformerConfig:
         True  # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
     )
 
-class Transformer(nn.Module):
-    def __init__(self, config: TransformerConfig):
-        super().__init__()
-        self.transformer = nn.ModuleDict(
-            dict(
-                wte=nn.Embedding(config.vocab_size, config.n_embd),
-                wpe=nn.Embedding(config.block_size, config.n_embd),
-                drop=nn.Dropout(config.dropout),
-                h=nn.ModuleList(
-                    [
-                        Block(config)
-                        for _ in range(config.n_layer)
-                    ]
-                ),
-                ln_f=LayerNorm(config.n_embd, bias=config.bias),
-            )
-        )
-
 class Mugato(torch.nn.Module):
     def __init__(
         self,
@@ -147,7 +129,7 @@ class Mugato(torch.nn.Module):
         # TODO:
         # Since we're doing our own embedding, we need to handle our own
         # position embedding.
-        self.transformer = sequence_model
+        self.transformer = sequence_model  # TODO: rename to sequence_model?
         self.lm_head = torch.nn.Linear(
             self.config.n_embd,
             self.config.vocab_size
@@ -155,7 +137,7 @@ class Mugato(torch.nn.Module):
 
     def forward(self, xs, ys=None, ms=None, pad=True):
         if ys is not None:
-            tok_emb, ys, ms = sequence(self.embedder, xs, ys, ms, pad=pad)
+            tok_emb, ys, ms = sequence(self.embedder, xs, ys, ms, pad=pad, sequence_length=self.config.block_size)
             b, t, c = tok_emb.size()
             pos = torch.arange(0, t, dtype=torch.long, device=self.device)  # shape (t)
             pos_emb = self.transformer.wpe(

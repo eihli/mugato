@@ -2,7 +2,7 @@ import math
 from typing import List, Protocol
 from einops import rearrange
 import torch
-from mugato.utils import as_tensor
+from mugato.utils import as_tensor, mu_law_encode, mu_law_decode, clamp, discretize, undiscretize
 
 
 class TextTokenizer(Protocol):
@@ -11,20 +11,6 @@ class TextTokenizer(Protocol):
 
     def encode(self, text: str) -> List[int]: ...
     def decode(self, tokens: List[int]) -> str: ...
-
-
-def discretize(x):
-    x = as_tensor(x)
-    bins = torch.linspace(x.min(), x.max(), steps=1024)
-    tokens = torch.bucketize(x, bins)
-    return tokens.tolist()
-
-
-# This is going to be a lossy decode. Nothing you can do about that.
-def undiscretize(x, original_min, original_max):
-    bins = torch.linspace(original_min, original_max, steps=1025)
-    bin_centers = (bins[:-1] + bins[1:]) / 2
-    return bin_centers[x]
 
 
 class Tokenizer:
@@ -52,12 +38,12 @@ class Tokenizer:
         return (tokens - self.n_text).squeeze(-1).tolist()
 
     def encode_continuous(self, xs):
-        return self.encode_discrete(discretize(xs)), min(xs), max(xs)
+        return self.encode_discrete(discretize(clamp(mu_law_encode(xs)))), min(xs), max(xs)
 
-    def decode_continuous(self, tokens, original_min=0, original_max=1):
-        return undiscretize(
+    def decode_continuous(self, tokens, original_min, original_max):
+        return mu_law_decode(undiscretize(
             self.decode_discrete(tokens), original_min, original_max
-        ).tolist()
+        )).tolist()
 
     def encode_image(self, image, patch_size=16):
         patches = image_to_patches(image, patch_size=patch_size)
