@@ -44,7 +44,7 @@ from mugato.utils import data_home, select_device
 out_dir = data_home / "out"
 eval_interval = 100
 log_interval = 1
-eval_iters = 2
+eval_iters = 6
 eval_only = False  # if True, script exits right after the first eval
 always_save_checkpoint = True  # if True, always save a checkpoint after each eval
 init_from = "scratch"  # 'scratch' or 'resume' or 'gpt2*'
