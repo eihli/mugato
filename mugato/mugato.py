@@ -28,17 +28,18 @@ class Embedder:
         and those get tokenized to be in the range [text_vocab_size, text_vocab_size+1024).
         """
         B, E, T, C = data.shape
+        n_embd = self.lookup_embedding.weight.size(-1)
         if (
             data.size(-1) > 1
         ):  # Images are the only modality that have a channel dim > 1.
             #                                           (C,  P,  P)
             return self.image_embedding(data.view(B * E * T, 3, 16, 16)).view(
-                B, E, T, -1
+                B, E, T, n_embd
             )
         else:
             # Zero grad dummy pass for image params
             dummy = sum(p.sum() * 0 for p in self.image_embedding.parameters())
-            return self.lookup_embedding(data.view(B * E * T)).view(B, E, T, -1) + dummy
+            return self.lookup_embedding(data.view(B * E * T)).view(B, E, T, n_embd) + dummy
 
 
 def sequence(embedder, xs, ys=None, ms=None, sequence_length=1024, pad=True):
@@ -135,7 +136,7 @@ class Mugato(torch.nn.Module):
             self.device
         )
 
-    def forward(self, xs, ys=None, ms=None, pad=True):
+    def forward(self, xs, ys=None, ms=None, pad=True, sequence: Callable = sequence):
         if ys is not None:
             tok_emb, ys, ms = sequence(
                 self.embedder,
