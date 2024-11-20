@@ -13,11 +13,12 @@ authors = [
     { name = "Eric Ihli", email = "eihli@owoga.com" }
 ]
 license = { text = "MIT" }
+version = "0.0.1"
 
 dependencies = [
     "datasets==3.0.2",
     "einops==0.8.0",
-    "IPython==8.22.2",
+    "IPython==9.1.0",
     "ipywidgets==8.1.5",
     "matplotlib==3.9.2",
     "minari==0.5.1",
@@ -39,6 +40,12 @@ dependencies = [
 test = [
     "pytest>=7.0.0"
 ]
+
+[tool.poetry.dependencies]
+python = ">=3.12,<4"
+
+[tool.poetry.group.dev.dependencies]
+nb-clean = "^4.0.1"
 
 [tool.setuptools]
 package-dir = {"" = "mugato"}

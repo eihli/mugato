@@ -44,7 +44,11 @@ class Tokenizer:
         return torch.tensor(xs, dtype=torch.long).unsqueeze(-1) + self.n_text
 
     def decode_discrete(self, tokens):
-        return (tokens - self.n_text).squeeze(-1).tolist()
+        # The model might output a token below the discrete vocabulary.
+        # (The discrete vocabulary is 0-1023 shifted by n_text.)
+        # How should we deal with tokens that decode (token - self.n_text)
+        # to negative tokens? I say we don't. Leave that to the application.
+        return (tokens % self.n_text).squeeze(-1).tolist()
 
     def encode_continuous(self, xs):
         return (

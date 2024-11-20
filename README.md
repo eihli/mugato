@@ -20,11 +20,30 @@ A good place to start, other than this README, is [the Jupyter notebook](./mugat
 
 Status:
 
-- [✅] [mugato.ipynb](./mugato.ipynb) is an interactive notebook with cells that demonstrate the behavior described in the paper
-- [✅] [data/](./mugato/data/four_rooms.py) directory has clear, simple examples of manipulating datasets making them easy for the model to use as training data
-- [🚧] [mugato.ipynb](./mugato.ipynb) cells are ordered for optimal consumption and is thoroughly documented with markdown cells and interactive elements
+- [✅] [mugato.ipynb](./mugato.ipynb) is an interactive notebook demonstration of the paper's main ideas
+- [✅] [data/](./mugato/data/) directory has clear, simple examples of manipulating datasets making them easy for the model to use as training data
 - [✅] [mugato.py](./mugato.py) implements the model in a way that makes it easy to swap out a transformer for any other sequence model
 - [✅] [train.py](./train.py) is a simple demonstration of a multi-GPU training loop
+- [🚧] [mugato.ipynb](./mugato.ipynb) cells are ordered for optimal consumption and is thoroughly documented with markdown cells and interactive elements
+
+Things that are beyond the scope of the Gato paper, but are good explorations:
+
+- [ ] [gradient blending](https://arxiv.org/pdf/2308.07686)
+- [ ] [RoPE](https://arxiv.org/abs/2104.09864)
+
+# Training
+
+On MacOS:
+
+```
+python3 train.py --device=mps
+```
+
+On distributed CUDA:
+
+```
+torchrun --standalone --nproc_per_node=4 train.py
+```
 
 # GATO
 

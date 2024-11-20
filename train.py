@@ -15,13 +15,15 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=0 --master_addr=123.456.123
 $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123.456 --master_port=1234 train.py
 (If your cluster does not have Infiniband interconnect prepend NCCL_IB_DISABLE=1)
 
+To run with MPU on MacOS:
+$ python train.py --device=mps
+
 Credit to Andrej Karpathy. This code is adapted from [nanoGPT](https://github.com/karpathy/nanoGPT).
 """
 from datetime import datetime, timezone
 import os
 import time
 import math
-import pickle
 from contextlib import nullcontext
 
 import numpy as np
@@ -49,7 +51,7 @@ eval_only = False  # if True, script exits right after the first eval
 always_save_checkpoint = True  # if True, always save a checkpoint after each eval
 init_from = "scratch"  # 'scratch' or 'resume' or 'gpt2*'
 # wandb logging
-wandb_log = True  # disabled by default
+wandb_log = False  # disabled by default
 wandb_project = "mugato"
 wandb_run_name = f"alpha-{datetime.now().isoformat()[:-7]}"
 # data
@@ -78,20 +80,21 @@ min_lr = 6e-5  # minimum learning rate, should be ~= learning_rate/10 per Chinch
 # DDP settings
 backend = "nccl"  # 'nccl', 'gloo', etc.
 # system
-device = select_device()
 dtype = (
     "bfloat16"
     if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
     else "float16"
 )  # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
-compile = True  # use PyTorch 2.0 to compile the model to be faster
+compile = False  # use PyTorch 2.0 to compile the model to be faster
 # -----------------------------------------------------------------------------
 config_keys = [
     k
     for k, v in globals().items()
     if not k.startswith("_") and isinstance(v, (int, float, bool, str))
 ]
+device = str(select_device())  # See configurator.py as to why this is a string.
 exec(open("configurator.py").read())  # overrides from command line or config file
+device = torch.device(device)
 config = {k: globals()[k] for k in config_keys}  # will be useful for logging
 # -----------------------------------------------------------------------------
 
@@ -123,13 +126,12 @@ if master_process:
 torch.manual_seed(1337 + seed_offset)
 torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
 torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
-# TODO: What changes need to be made to support mpu and tpu?
-#       We're trying to handle all 4 - see `select_device`.
-#       But this code still only handles cuda and cpu.
-device_type = (
-    "cuda"  # TODO: if "cuda" in device else "cpu"  # for later use in torch.autocast
-)
 
+device_type = "cuda" if "cuda" in str(device) else "mps" if "mps" in str(device) else "cpu"
+
+# Gradient scaling might be supported on newer versions of PyTorch.
+# https://github.com/pytorch/pytorch/pull/150255
+# TODO: Check if it's stable and supported and bump to a version that supports it.
 # note: float16 data type will automatically use a GradScaler
 ptdtype = {
     "float32": torch.float32,
@@ -138,7 +140,7 @@ ptdtype = {
 }[dtype]
 ctx = (
     nullcontext()
-    if device_type == "cpu"
+    if device_type == "cpu" or device_type == "mps"
     else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 )
 
