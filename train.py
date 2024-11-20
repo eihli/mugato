@@ -15,13 +15,15 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=0 --master_addr=123.456.123
 $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123.456 --master_port=1234 train.py
 (If your cluster does not have Infiniband interconnect prepend NCCL_IB_DISABLE=1)
 
+To run with MPU on MacOS:
+$ python train.py --device=mps
+
 Credit to Andrej Karpathy. This code is adapted from [nanoGPT](https://github.com/karpathy/nanoGPT).
 """
 from datetime import datetime, timezone
 import os
 import time
 import math
-import pickle
 from contextlib import nullcontext
 
 import numpy as np
@@ -49,7 +51,7 @@ eval_only = False  # if True, script exits right after the first eval
 always_save_checkpoint = True  # if True, always save a checkpoint after each eval
 init_from = "scratch"  # 'scratch' or 'resume' or 'gpt2*'
 # wandb logging
-wandb_log = True  # disabled by default
+wandb_log = False  # disabled by default
 wandb_project = "mugato"
 wandb_run_name = f"alpha-{datetime.now().isoformat()[:-7]}"
 # data
@@ -84,7 +86,7 @@ dtype = (
     if torch.cuda.is_available() and torch.cuda.is_bf16_supported()
     else "float16"
 )  # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
-compile = True  # use PyTorch 2.0 to compile the model to be faster
+compile = False  # use PyTorch 2.0 to compile the model to be faster
 # -----------------------------------------------------------------------------
 config_keys = [
     k
@@ -123,12 +125,8 @@ if master_process:
 torch.manual_seed(1337 + seed_offset)
 torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
 torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
-# TODO: What changes need to be made to support mpu and tpu?
-#       We're trying to handle all 4 - see `select_device`.
-#       But this code still only handles cuda and cpu.
-device_type = (
-    "cuda"  # TODO: if "cuda" in device else "cpu"  # for later use in torch.autocast
-)
+
+device_type = "cuda" if "cuda" in str(device) else "mps" if "mps" in str(device) else "cpu"
 
 # note: float16 data type will automatically use a GradScaler
 ptdtype = {
