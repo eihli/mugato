@@ -31,6 +31,20 @@ Things that are beyond the scope of the Gato paper, but are good explorations:
 - [ ] [gradient blending](https://arxiv.org/pdf/2308.07686)
 - [ ] [RoPE](https://arxiv.org/abs/2104.09864)
 
+# Training
+
+On MacOS:
+
+```
+python3 train.py --device=mps
+```
+
+On distributed CUDA:
+
+```
+torchrun --standalone --nproc_per_node=4 train.py
+```
+
 # GATO
 
 ![diagram of DeepMind's GATO architecture](./resources/images/gato.png)
