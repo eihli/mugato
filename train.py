@@ -20,6 +20,7 @@ $ python train.py --device=mps
 
 Credit to Andrej Karpathy. This code is adapted from [nanoGPT](https://github.com/karpathy/nanoGPT).
 """
+
 from datetime import datetime, timezone
 import os
 import time
@@ -126,7 +127,9 @@ if master_process:
 torch.manual_seed(1337 + seed_offset)
 torch.backends.cuda.matmul.allow_tf32 = True  # allow tf32 on matmul
 torch.backends.cudnn.allow_tf32 = True  # allow tf32 on cudnn
-device_type = "cuda" if "cuda" in str(device) else "mps" if "mps" in str(device) else "cpu"
+device_type = (
+    "cuda" if "cuda" in str(device) else "mps" if "mps" in str(device) else "cpu"
+)
 
 # Gradient scaling might be supported on newer versions of PyTorch.
 # https://github.com/pytorch/pytorch/pull/150255

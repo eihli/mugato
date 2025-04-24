@@ -58,8 +58,8 @@ class Tokenizer:
         )
 
     def decode_continuous(self, tokens, original_min, original_max):
-        return mu_law_decode(
-            undiscretize(self.decode_discrete(tokens), original_min, original_max)
+        return undiscretize(
+            self.decode_discrete(tokens), original_min, original_max
         ).tolist()
 
     def encode_image(self, image, patch_size=16):

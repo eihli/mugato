@@ -25,19 +25,21 @@ denormalize = transforms.Normalize(
     [-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.255], [1 / 0.229, 1 / 0.224, 1 / 0.225]
 )
 
-image_transform = transforms.Compose(
-    [
-        transforms.ToDtype(torch.float32, scale=True),
-        transforms.RandomResizedCrop((192, 192), (1.0, 1.0)),
-        normalize,
-    ]
-)
-
 
 def as_tensor(x):
     if isinstance(x, Image.Image):
         return pil_to_tensor(x)
     return x if isinstance(x, torch.Tensor) else torch.tensor(x)
+
+
+image_transform = transforms.Compose(
+    [
+        as_tensor,
+        transforms.ToDtype(torch.float32, scale=True),
+        transforms.RandomResizedCrop((192, 192), (1.0, 1.0)),
+        normalize,
+    ]
+)
 
 
 def select_device():
