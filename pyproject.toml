@@ -13,7 +13,7 @@ authors = ["Eric Ihli <eihli@owoga.com>"]
 license = "MIT"
 
 [tool.poetry.dependencies]
-python = ">=3.12,<4"
+python = ">=3.11,<4"
 datasets = "3.0.2"
 einops = "0.8.0"
 IPython = "9.1.0"
