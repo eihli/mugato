@@ -4,6 +4,8 @@ A small, simple implementation of what's described in [DeepMind's GATO paper](ht
 
 This project aims to serve as small, understandable, baseline model for the [MultiNet Benchmark](https://github.com/ManifoldRG/MultiNet) from [Manifold Research](https://www.manifoldrg.com).
 
+Explore the code and train your own model using this [Colab notebook](https://colab.research.google.com/drive/1bdW7sGSvRuddaW061vGudy98DEgaI1oB?usp=sharing)
+
 Goals:
 
 - Clarity
