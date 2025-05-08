@@ -43,23 +43,17 @@ image_transform = transforms.Compose(
 
 
 def select_device():
-    # Check for TPU support (requires torch_xla library)
     try:
         import torch_xla.core.xla_model as xm
-
-        tpu_available = xm.xla_device_hw() == "TPU"
+        return xm.xla_device()  # For GCP TPU
     except ImportError:
-        tpu_available = False
-
-    # Set device based on availability
-    if tpu_available:
-        device = xm.xla_device()  # For GCP TPU
-    elif torch.cuda.is_available():
-        device = torch.device("cuda")  # For NVIDIA GPUs
+        pass
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
     elif torch.backends.mps.is_available():
-        device = torch.device("mps")  # For Apple Silicon (macOS with MPS)
+        device = torch.device("mps")
     else:
-        device = torch.device("cpu")  # Fallback to CPU
+        device = torch.device("cpu")
     return device
 
 
