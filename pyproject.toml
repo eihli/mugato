@@ -21,7 +21,7 @@ classifiers = [
 dependencies = [
     "datasets>=3.0.2",
     "einops>=0.8.0",
-    "minari>=0.5.3",
+    "minari[hdf5]>=0.5.3",
     "minigrid>=2.3.1",
     "numpy==1.26.0",
     "pillow>=11.0.0",
@@ -41,6 +41,7 @@ dependencies = [
 dev = [
     "ruff>=0.3.0",
     "black>=24.2.0",
+    "jupyter>=1.1.1",
     "mypy>=1.9.0",
     "nb-clean>=4.0.1",
     "ipython>=8.22.1",

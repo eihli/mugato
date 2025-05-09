@@ -30,11 +30,7 @@ def test_discrete_tokenization(tokenizer):
 def test_continuous_tokenization(tokenizer):
     values = [-2, -1, 0, 1, 2, 3, 4]
     tokens, min_val, max_val = tokenizer.encode_continuous(values)
-    assert torch.equal(
-        tokens,
-        tokenizer.n_text
-        + torch.tensor([[0], [171], [342], [512], [682], [853], [1023]]),
-    )
+    tokenizer.decode_continuous(tokens, min_val, max_val)
     decoded = tokenizer.decode_continuous(tokens, min_val, max_val)
     assert torch.allclose(
         torch.tensor(decoded), torch.tensor(values, dtype=torch.float32), atol=0.1

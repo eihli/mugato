@@ -243,13 +243,13 @@ def discretize(x):
 
 
 # This is going to be a lossy decode. Nothing you can do about that.
-def undiscretize(x, original_min, original_max):
-    bins = torch.linspace(original_min, original_max, steps=1025)
-    bin_centers = (bins[:-1] + bins[1:]) / 2
-    return bin_centers[x]
+def undiscretize(x, scaled_min, scaled_max):
+    bins = torch.linspace(scaled_min, scaled_max, steps=1023)
+    return bins[x]
 
 
 def mu_law_encode(x, M=256, mu=100):
+    x = as_tensor(x)
     M = torch.tensor(M, dtype=x.dtype)
     mu = torch.tensor(mu, dtype=x.dtype)
     x_mu = torch.sign(x) * torch.log(torch.abs(x) * mu + 1.0)

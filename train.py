@@ -35,9 +35,12 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.distributed import init_process_group, destroy_process_group
 from tqdm import tqdm
 
-from mugato.mugato import MugatoConfig, Mugato, TransformerConfig
+from mugato.mugato import MugatoConfig
 from mugato.tokenizer import Tokenizer
-from mugato.nano_gpt import GPTConfig, GPT, Block, LayerNorm
+from mugato.models.transformer import (
+    block_size, n_layer, n_head, n_embd, dropout, bias,
+    init_model, crop_block_size, get_learning_rate
+)
 from mugato.data.utils import create_combined_dataloader
 from mugato.utils import data_home, select_device
 
