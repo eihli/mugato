@@ -34,6 +34,7 @@ def example():
         'He looks to be waiting for a paid ride to pick him up.']
     }
     """
+    pass
 
 
 def initialize():

@@ -62,14 +62,7 @@ wandb_run_name = f"alpha-{datetime.now().isoformat()[:-7]}"
 dataset = "openwebtext"
 gradient_accumulation_steps = 5 * 8  # used to simulate larger batch sizes
 batch_size = 6  # if gradient_accumulation_steps > 1, this is the micro-batch size
-block_size = 768
 # model
-n_layer = 6
-n_head = 4
-n_embd = 512
-dropout = 0.0  # for pretraining 0 is good, for finetuning try 0.1+
-bias = False  # do we use bias inside LayerNorm and Linear layers?
-# adamw optimizer
 learning_rate = 6e-4  # max learning rate
 max_iters = 6000  # total number of training iterations
 weight_decay = 1e-1
@@ -184,84 +177,20 @@ iter_num = 0
 best_val_loss = 1e9
 
 # model init
-transformer_model_args = dict(
-    n_layer=n_layer,
-    n_head=n_head,
-    n_embd=n_embd,
-    block_size=block_size,
-    bias=bias,
-    vocab_size=50257,  # tiktoken.get_encoding("r50k_base").n_vocab
-    dropout=dropout,
-)  # start with model_args from command line
-
-mugato_model_args = dict(
-    n_embd=n_embd,
-    block_size=block_size,
-    vocab_size=51281,  # text vocab + discrete vocab
-)
-
-if init_from == "scratch":
-    # init a new model from scratch
-    print("Initializing a new model from scratch")
-    transformer_config = TransformerConfig(**transformer_model_args)
-    transformer = nn.ModuleDict(
-        dict(
-            wpe=nn.Embedding(transformer_config.block_size, transformer_config.n_embd),
-            drop=nn.Dropout(transformer_config.dropout),
-            h=nn.ModuleList(
-                [Block(transformer_config) for _ in range(transformer_config.n_layer)]
-            ),
-        )
+if init_from == "resume":
+    checkpoint_path = os.path.join(out_dir, "ckpt.pt")
+    model, model_args, iter_num, best_val_loss = init_model(
+        tokenizer, init_from, resume_path=checkpoint_path, device=device
     )
-    mugato_config = MugatoConfig(**mugato_model_args)
-    model = Mugato(tokenizer, transformer, mugato_config)
-elif init_from == "resume":
-    print(f"Resuming training from {out_dir}")
-    # resume training from a checkpoint.
-    ckpt_path = os.path.join(out_dir, "ckpt.pt")
-    checkpoint = torch.load(ckpt_path, map_location=device, weights_only=True)
-    checkpoint_model_args = checkpoint["model_args"]
-    # force these config attributes to be equal otherwise we can't even resume training
-    # the rest of the attributes (e.g. dropout) can stay as desired from command line
-    for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size"]:
-        transformer_model_args[k] = checkpoint_model_args[k]
-    # create the model
-    transformer_config = TransformerConfig(**transformer_model_args)
-    transformer = nn.ModuleDict(
-        dict(
-            wpe=nn.Embedding(transformer_config.block_size, transformer_config.n_embd),
-            drop=nn.Dropout(transformer_config.dropout),
-            h=nn.ModuleList(
-                [Block(transformer_config) for _ in range(transformer_config.n_layer)]
-            ),
-        )
+else:
+    model, model_args, iter_num, best_val_loss = init_model(
+        tokenizer, init_from, device=device
     )
-    mugato_config = MugatoConfig(**mugato_model_args)
-    model = Mugato(tokenizer, transformer, mugato_config)
-    state_dict = checkpoint["model"]
-    # fix the keys of the state dictionary :(
-    # honestly no idea how checkpoints sometimes get this prefix, have to debug more
-    unwanted_prefix = "_orig_mod."
-    for k, v in list(state_dict.items()):
-        if k.startswith(unwanted_prefix):
-            state_dict[k[len(unwanted_prefix) :]] = state_dict.pop(k)
-    model.load_state_dict(state_dict)
-    iter_num = checkpoint["iter_num"]
-    best_val_loss = checkpoint["best_val_loss"]
-elif init_from.startswith("gpt2"):
-    print(f"Initializing from OpenAI GPT-2 weights: {init_from}")
-    # initialize from OpenAI GPT-2 weights
-    override_args = dict(dropout=dropout)
-    model = GPT.from_pretrained(init_from, override_args)
-    # read off the created config params, so we can store them into checkpoint correctly
-    for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size"]:
-        transformer_model_args[k] = getattr(model.config, k)
+
 # crop down the model block size if desired, using model surgery
 if block_size < model.config.block_size:
-    model.crop_block_size(block_size)
-    transformer_model_args["block_size"] = (
-        block_size  # so that the checkpoint will have the right value
-    )
+    model, model_args = crop_block_size(model, block_size, model_args)
+
 model.to(device)
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
@@ -272,8 +201,9 @@ optimizer = model.configure_optimizers(
     weight_decay, learning_rate, (beta1, beta2), device_type
 )
 if init_from == "resume":
+    checkpoint = torch.load(os.path.join(out_dir, "ckpt.pt"), map_location=device)
     optimizer.load_state_dict(checkpoint["optimizer"])
-checkpoint = None  # free up memory
+    del checkpoint  # free up memory
 
 # compile the model
 if compile:
@@ -309,21 +239,6 @@ def estimate_loss():
     return out
 
 
-# learning rate decay scheduler (cosine with warmup)
-def get_lr(it):
-    # 1) linear warmup for warmup_iters steps
-    if it < warmup_iters:
-        return learning_rate * it / warmup_iters
-    # 2) if it > lr_decay_iters, return min learning rate
-    if it > lr_decay_iters:
-        return min_lr
-    # 3) in between, use cosine decay down to min learning rate
-    decay_ratio = (it - warmup_iters) / (lr_decay_iters - warmup_iters)
-    assert 0 <= decay_ratio <= 1
-    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))  # coeff ranges 0..1
-    return min_lr + coeff * (learning_rate - min_lr)
-
-
 # logging
 if wandb_log and master_process:
     import wandb
@@ -338,7 +253,9 @@ raw_model = model.module if ddp else model  # unwrap DDP container if needed
 running_mfu = -1.0
 while True:
     # determine and set the learning rate for this iteration
-    lr = get_lr(iter_num) if decay_lr else learning_rate
+    lr = get_learning_rate(
+        iter_num, learning_rate, warmup_iters, lr_decay_iters, min_lr, decay_lr
+    )
     for param_group in optimizer.param_groups:
         param_group["lr"] = lr
 
@@ -364,7 +281,7 @@ while True:
                 checkpoint = {
                     "model": raw_model.state_dict(),
                     "optimizer": optimizer.state_dict(),
-                    "model_args": transformer_model_args,
+                    "model_args": model_args,
                     "iter_num": iter_num,
                     "best_val_loss": best_val_loss,
                     "config": config,
