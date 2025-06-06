@@ -9,3 +9,10 @@ A dataset is a module that has 3 functions:
 - tokenize(): Given a sample, returns an (input, targets) tuple, each an ordered dict.
 - create_dataloader(): A function that takes a tokenizer and returns a dataloader.
 """
+import logging
+import os
+
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)

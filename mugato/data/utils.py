@@ -6,6 +6,9 @@ import torch
 from torch.utils.data import DataLoader
 from functools import partial
 from mugato.utils import TransformDataset, generic_collate_fn
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def splits(dataset, train_split=0.8, val_split=0.9):
@@ -18,6 +21,11 @@ def splits(dataset, train_split=0.8, val_split=0.9):
     return train_data, val_data, test_data
 
 
+# TODO: This is idea of an "infinite dataloader" is convenient for hacking
+# but isn't good for training.
+# If one dataset is 100 samples and another is 1000, then the model will
+# see each sample from the 100 sample dataset 10 times by the time it sees
+# each sample of the 1000 sample dataset once.
 def infinite_dataloader(fn):
     it = iter(fn())
     while True:
@@ -48,12 +56,21 @@ def find_datasets():
 
 
 def initialize_all():
+    logger.debug("Initializing all datasets")
     dataset_modules = find_datasets()
+    logger.debug(f"Found {dataset_modules} dataset modules")
     datasets = {}
     for dataset_module in sorted(dataset_modules, key=lambda x: x.__name__):
         datasets[dataset_module.__name__] = dataset_module.initialize()
     return datasets
 
+def create_combined_dataloader_from_module(tokenizer, batch_size, split="train", block_size=1024):
+    dataset_modules = find_datasets()
+    all_dataloaders = []
+    for dataset_module in dataset_modules:
+        data_loader = dataset_module.create_infinite_dataloader(tokenizer, batch_size, split, block_size)
+        all_dataloaders.append(data_loader)
+    return cycle(all_dataloaders)
 
 def create_combined_dataloader(tokenizer, batch_size, split="train", block_size=1024):
     datasets = initialize_all()
@@ -66,6 +83,8 @@ def create_combined_dataloader(tokenizer, batch_size, split="train", block_size=
         )
         all_datasets.append(dataset_split)
 
+    # TODO: It would be nice to have some metadata about the datasets,
+    # like the name of the dataset, the number of samples, etc.
     return cycle(
         [
             infinite_dataloader(

@@ -37,6 +37,10 @@ def test_create_dataloader(tokenizer):
     assert "image" in xs
     assert "action" in xs
 
+    assert "image" in mask
+    assert mask["image"].sum() == 0
+    assert mask["action"].sum() > 0
+
     # Check corresponding ys and masks exist
     for key in xs:
         assert key in ys

@@ -41,7 +41,7 @@ from mugato.models.transformer import (
     block_size, n_layer, n_head, n_embd, dropout, bias,
     init_model, crop_block_size, get_learning_rate
 )
-from mugato.data.utils import create_combined_dataloader
+from mugato.data.utils import create_combined_dataloader, create_combined_dataloader_from_module
 from mugato.utils import data_home, select_device
 
 # -----------------------------------------------------------------------------
@@ -145,17 +145,17 @@ ctx = (
 text_tokenizer = tiktoken.get_encoding("r50k_base")
 tokenizer = Tokenizer(text_tokenizer)
 train_dataloader = iter(
-    create_combined_dataloader(
+    create_combined_dataloader_from_module(
         tokenizer, batch_size, split="train", block_size=block_size
     )
 )
 val_dataloader = iter(
-    create_combined_dataloader(
+    create_combined_dataloader_from_module(
         tokenizer, batch_size, split="val", block_size=block_size
     )
 )
 test_dataloader = iter(
-    create_combined_dataloader(
+    create_combined_dataloader_from_module(
         tokenizer, batch_size, split="test", block_size=block_size
     )
 )

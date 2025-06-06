@@ -85,7 +85,9 @@ class TransformDataset(Dataset):
         return self.transform(self.dataset[idx])
 
 
-def generic_collate_fn(batch, sequence_length=1024):
+def generic_collate_fn(batch, sequence_length=1024, mask_keys=None):
+    if mask_keys is None:
+        mask_keys = []
     sliced = [
         (
             slice_to_context_window(sequence_length, xs),
@@ -96,7 +98,7 @@ def generic_collate_fn(batch, sequence_length=1024):
     # sliced is a (B, 2, ...) list.
     # the 2 is xs, ys
     xs, ys = [v for v in zip(*sliced)]
-    xs, ys, ms = pad(xs), pad(ys), mask(ys)
+    xs, ys, ms = pad(xs), pad(ys), mask(ys, mask_keys)
     return xs, ys, ms
 
 
@@ -160,14 +162,15 @@ def pad(batch, padding_value=0):
     return Timesteps([(k, torch.stack(v)) for k, v in padded.items()])
 
 
-def mask(batch):
+def mask(batch, mask_keys):
     result = Timesteps()
     for k, v in batch[0].items():
         episode_lengths = [sample[k].size(0) for sample in batch]
         token_lengths = [sample[k].size(1) for sample in batch]
         result[k] = torch.zeros(len(batch), max(episode_lengths), max(token_lengths))
         for i in range(len(batch)):
-            result[k][i][: episode_lengths[i], : token_lengths[i]] = 1
+            if k in mask_keys:
+                result[k][i][:episode_lengths[i], :token_lengths[i]] = 1
     return result
 
 
