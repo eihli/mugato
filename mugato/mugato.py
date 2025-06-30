@@ -1,17 +1,17 @@
-import math
 import inspect
+import os
+from collections.abc import Callable
 from dataclasses import dataclass
+
+import tiktoken
 import torch
 import torch.nn as nn
-from torch.nn import functional as F
 from timm.models.resnetv2 import ResNetV2
-import tiktoken
+from torch.nn import functional as F
 
 from mugato.nano_gpt import GPTConfig
 from mugato.tokenizer import Tokenizer
-from mugato.utils import select_device
-
-from typing import Callable, Optional
+from mugato.utils import data_home, select_device
 
 
 @dataclass
@@ -32,10 +32,12 @@ class Embedder:
         if (
             data.size(-1) > 1
         ):  # Images are the only modality that have a channel dim > 1.
-            #                                           (C,  P,  P)
-            return self.image_embedding(data.view(B * E * T, 3, 16, 16)).view(
-                B, E, T, n_embd
-            )
+            # Image patches come as flattened features: (B, E, T, 768)
+            # where 768 = 3 * 16 * 16 (channels * patch_height * patch_width)
+            # Reshape to (B*E*T, 3, 16, 16) for ResNet processing
+            images = data.view(B * E * T, 3, 16, 16)
+            embeddings = self.image_embedding(images)
+            return embeddings.view(B, E, T, n_embd)
         else:
             # Zero grad dummy pass for image params
             dummy = sum(p.sum() * 0 for p in self.image_embedding.parameters())
@@ -85,6 +87,7 @@ class MugatoConfig:
     n_embd: int = 512
     block_size: int = 1024
     vocab_size: int = 51281  # text vocab + discrete vocab
+    out_dir: str = os.path.join(data_home, "out")
 
 
 def init_default_config(transformer_model_args: GPTConfig) -> MugatoConfig:

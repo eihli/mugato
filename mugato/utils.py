@@ -1,18 +1,19 @@
-from collections import OrderedDict
+import io
 import os
-from pathlib import Path
 import random
-from einops import rearrange
+from collections import OrderedDict
+from pathlib import Path
+
 import numpy as np
 import torch
-from torch.utils.data import Dataset
 import torch.nn.functional as F
-from torchvision.transforms.functional import pil_to_tensor
 import torchvision.transforms.v2 as transforms
+from einops import rearrange
+from IPython.display import Image as IPythonImage
+from IPython.display import display
 from PIL import Image
-from IPython.display import display, Image as IPythonImage
-import io
-
+from torch.utils.data import Dataset
+from torchvision.transforms.functional import pil_to_tensor
 
 xdg_data_home = Path(
     os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
@@ -88,16 +89,26 @@ class TransformDataset(Dataset):
 def generic_collate_fn(batch, sequence_length=1024, mask_keys=None):
     if mask_keys is None:
         mask_keys = []
-    sliced = [
-        (
-            slice_to_context_window(sequence_length, xs),
-            slice_to_context_window(sequence_length, ys),
+
+    # Slice samples and filter out empty ones
+    sliced = []
+    for xs, ys in batch:
+        xs_sliced = slice_to_context_window(sequence_length, xs)
+        ys_sliced = slice_to_context_window(sequence_length, ys)
+
+        # Check if the sample has at least one episode
+        # (check the first value since all keys should have same episode count)
+        if next(iter(xs_sliced.values())).size(0) > 0:
+            sliced.append((xs_sliced, ys_sliced))
+
+    if not sliced:
+        raise ValueError(
+            f"No samples in batch could fit within sequence_length={sequence_length}. "
+            "Consider increasing block_size or using datasets with smaller episodes."
         )
-        for xs, ys in batch
-    ]
-    # sliced is a (B, 2, ...) list.
-    # the 2 is xs, ys
-    xs, ys = [v for v in zip(*sliced)]
+
+    # Process the non-empty samples
+    xs, ys = [v for v in zip(*sliced, strict=False)]
     xs, ys, ms = pad(xs), pad(ys), mask(ys, mask_keys)
     return xs, ys, ms
 
@@ -131,8 +142,10 @@ def slice_to_context_window(sequence_length, sample):
     n = random_episode_start_index(sequence_length, sample)
     m = sequence_episode_capacity(sequence_length, sample)
     if m < 1:
+        # Can't fit even one complete episode - return empty sample
+        # This maintains structure but with 0 episodes
         for k in sample.keys():
-            result[k] = sample[k][:, :sequence_length]
+            result[k] = sample[k][:0]
     else:
         for k in sample.keys():
             result[k] = sample[k][n : n + m]
