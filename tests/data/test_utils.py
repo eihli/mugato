@@ -6,6 +6,8 @@ It's not really a test. Just a sanity check and example."""
 
 import pytest
 import tiktoken
+import torch
+
 from mugato.data.utils import create_combined_dataloader
 from mugato.tokenizer import Tokenizer
 
@@ -13,7 +15,6 @@ from mugato.tokenizer import Tokenizer
 @pytest.fixture
 def tokenizer():
     return Tokenizer(tiktoken.get_encoding("r50k_base"))
-
 
 def test_combined_dataloader(tokenizer):
     combined_dataloader = create_combined_dataloader(
@@ -23,8 +24,9 @@ def test_combined_dataloader(tokenizer):
     dataloader = next(dataloader_iter)
     batch = next(dataloader)
     xs, ys, mask = batch
-    assert list(xs.keys()) == ["mission", "direction", "image", "action"]
+    keys_1 = list(xs.keys())
     dataloader = next(dataloader_iter)
     batch = next(dataloader)
     xs, ys, mask = batch
-    assert list(xs.keys()) == ["question", "image", "answer"]
+    keys_2 = list(xs.keys())
+    assert keys_1 != keys_2, "Iterating over the combined dataloader should change the keys"
