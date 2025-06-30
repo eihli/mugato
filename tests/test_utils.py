@@ -1,5 +1,6 @@
 import pytest
 import torch
+
 from mugato.utils import normalize_to_between_minus_one_plus_one
 
 

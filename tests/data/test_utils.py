@@ -6,7 +6,6 @@ It's not really a test. Just a sanity check and example."""
 
 import pytest
 import tiktoken
-import torch
 
 from mugato.data.utils import create_combined_dataloader
 from mugato.tokenizer import Tokenizer

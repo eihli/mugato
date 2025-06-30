@@ -16,14 +16,16 @@ def initialize():
         with open(shakespeare_filepath, "w", encoding="utf-8") as f:
             f.write(requests.get(data_url).text)
 
-    with open(shakespeare_filepath, "r", encoding="utf-8") as f:
+    with open(shakespeare_filepath, encoding="utf-8") as f:
         data = f.read()
 
     # Split the dataset into each character's lines.
-    # Continue taking lines until you have at least 250 words in the sample.
-    # Add that sample to the dataset.
+    # Continue taking lines until you have at least 150 words in the sample.
+    # Add that sample to the dataset. I chose 150 because empirically it
+    # seems like that's less than the 1024 tokens I was using for my
+    # initial experiments on small hardware.
     characters_lines = re.split(r"\n\s*\n", data.strip())
-    MIN_WORDS_PER_BATCH = 250
+    MIN_WORDS_PER_BATCH = 150
     sample = [characters_lines[0]]
     num_words_in_sample = len(characters_lines[0].split())
     text_dataset = []

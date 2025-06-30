@@ -1,7 +1,7 @@
-import math
 import pytest
 import tiktoken
 import torch
+
 from mugato.tokenizer import Tokenizer
 
 
