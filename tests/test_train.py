@@ -15,7 +15,7 @@ def test_trainer_runs_and_outputs():
     config = train.MugatoConfig(
         device=select_device(),
         n_embd=128,
-        block_size=512,
+        block_size=1024,
         vocab_size=51281,  # Correct vocab size: text vocab (50257) + discrete vocab (1024)
         out_dir=os.path.join(data_home, "out", "test_trainer"),  # Use subdirectory for test
     )
@@ -24,7 +24,7 @@ def test_trainer_runs_and_outputs():
         "n_layer": 2,
         "n_head": 8,
         "n_embd": 128,
-        "block_size": 512,
+        "block_size": 1024,
         "vocab_size": 51281,  # Must match the MugatoConfig vocab_size
         "dropout": 0.0,
         "bias": False,
@@ -42,13 +42,14 @@ def test_trainer_runs_and_outputs():
         max_iters=20,
         eval_iters=2,
         eval_interval=2,
-        compile=False,
+        compile_model=False,
         config_overrides=transformer_overrides,
+        gradient_accumulation_steps=1,  # Use 1 for faster testing
     )
     metrics = trainer.train()
 
     # Check that loss plot exists
-    assert len(trainer.losses) == trainer.max_iters, f"Expected {trainer.max_iters} losses, got {len(trainer.losses)}"
+    assert len(trainer.losses) == trainer.max_iters + 1, f"Expected {trainer.max_iters + 1} losses (including iter 0), got {len(trainer.losses)}"
     assert all(not torch.isnan(torch.tensor(loss)) for loss in trainer.losses), "Found NaN losses"
 
     loss_plot = os.path.join(config.out_dir, "loss.png")
@@ -126,11 +127,11 @@ def test_shakespeare_training():
     trainer = train.Trainer(
         config,
         tokenizer,
-        dataloader=dataloader,
         batch_size=batch_size,
         max_iters=5,
-        compile=False,
+        compile_model=False,
         config_overrides=transformer_overrides,
+        gradient_accumulation_steps=1,  # Use 1 for faster testing
     )
 
     metrics = trainer.train()

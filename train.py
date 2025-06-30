@@ -30,7 +30,7 @@ from torch.distributed import destroy_process_group, init_process_group
 
 from mugato.mugato import MugatoConfig
 from mugato.tokenizer import Tokenizer
-from mugato.train import AdvancedTrainer
+from mugato.train import Trainer
 from mugato.utils import data_home, select_device
 
 # -----------------------------------------------------------------------------
@@ -157,7 +157,7 @@ def main():
     }
 
     # Create trainer
-    trainer = AdvancedTrainer(
+    trainer = Trainer(
         config=mugato_config,
         tokenizer=tokenizer,
         # Training params

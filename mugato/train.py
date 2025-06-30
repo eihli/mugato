@@ -1,172 +1,23 @@
 # Trainer class and minimal API for test-driven refactor
+from datetime import datetime
 import os
 import time
+from contextlib import nullcontext
 
 import matplotlib.pyplot as plt
 import torch
+from torch.distributed import destroy_process_group, init_process_group
+from torch.nn.parallel import DistributedDataParallel as DDP
+from tqdm import tqdm
 
 from mugato.data.utils import create_combined_dataloader_from_module
-from mugato.models.transformer import init_model
+from mugato.models.transformer import crop_block_size, get_learning_rate, init_model
 from mugato.mugato import MugatoConfig
 
 
 class Trainer:
-    def __init__(
-        self,
-        config: MugatoConfig,
-        tokenizer,
-        dataloader=None,  # Allow passing custom dataloader
-        batch_size: int = 2,
-        max_iters: int = 5,
-        eval_iters: int = 2,
-        eval_interval: int = 2,
-        out_dir = None,
-        compile: bool = False,
-        config_overrides: dict = None,
-    ):
-        self.config = config
-        self.tokenizer = tokenizer
-        self.device = torch.device(config.device)
-        self.batch_size = batch_size
-        self.max_iters = max_iters
-        self.eval_iters = eval_iters
-        self.eval_interval = eval_interval
-        self.out_dir = out_dir or getattr(config, 'out_dir', './out')
-        self.compile = compile
-        self.config_overrides = config_overrides or {}
-
-        # Pass the actual tokenizer to model and dataloader
-        # init_model returns (model, model_args, iter_num, best_val_loss)
-        self.model, self.model_args, _, _ = init_model(
-            tokenizer=self.tokenizer,
-            init_from="scratch",
-            config_overrides=self.config_overrides,
-            device=str(self.device),  # init_model expects string device
-        )
-        self.model.to(self.device)
-
-        # Initialize weights if needed (helps with NaN issues)
-        for m in self.model.modules():
-            if isinstance(m, (torch.nn.Linear, torch.nn.Embedding)):
-                if hasattr(m, 'weight') and m.weight is not None:
-                    torch.nn.init.normal_(m.weight, mean=0.0, std=0.02)
-                if hasattr(m, 'bias') and m.bias is not None:
-                    torch.nn.init.zeros_(m.bias)
-
-        # Use very low learning rate for stability during testing
-        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=1e-5, weight_decay=0.01)
-
-        # Use provided dataloader or create default one
-        if dataloader is None:
-            self.dataloader = create_combined_dataloader_from_module(
-                self.tokenizer, self.batch_size, split="train", block_size=self.config.block_size
-            )
-        else:
-            self.dataloader = dataloader
-
-        self.losses = []
-        self.metrics = {}
-
-    def train(self):
-        start_time = time.time()
-
-        # Handle both cycling and non-cycling dataloaders
-        if hasattr(self.dataloader, '__next__'):
-            # It's a cycling dataloader, get the next one
-            dataloader = next(self.dataloader)
-        else:
-            # It's a regular dataloader
-            dataloader = self.dataloader
-
-        # Put model in training mode
-        self.model.train()
-
-        for iter_num, (xs, ys, ms) in enumerate(dataloader):
-            if iter_num >= self.max_iters:
-                break
-            xs, ys, ms = xs.to(self.device), ys.to(self.device), ms.to(self.device)
-
-            # Forward pass - Mugato expects (xs, ys, ms)
-            try:
-                logits, loss = self.model(xs, ys, ms)
-            except Exception as e:
-                print(f"Error during forward pass at iteration {iter_num}: {e}")
-                print(f"xs keys: {xs.keys()}")
-                for k, v in xs.items():
-                    print(f"  xs['{k}'] shape: {v.shape}")
-                raise
-
-            # Check for NaN in logits or loss
-            if torch.isnan(logits).any():
-                print(f"Warning: NaN in logits at iteration {iter_num}")
-                print(f"Logits stats: min={logits.min():.4f}, max={logits.max():.4f}, mean={logits.mean():.4f}")
-
-            if torch.isnan(loss):
-                print(f"Warning: NaN loss at iteration {iter_num}")
-                # Debug info
-                print(f"xs shape: {list(xs[k].shape for k in xs.keys())}")
-                print(f"ys shape: {list(ys[k].shape for k in ys.keys())}")
-                print(f"ms shape: {list(ms[k].shape for k in ms.keys())}")
-                print(f"logits shape: {logits.shape}")
-                # Additional debug for embeddings
-                for k, v in xs.items():
-                    if v.size(-1) > 1:
-                        print(f"  {k} has channel dim {v.size(-1)} > 1 (will use image embedding)")
-                # Check target values
-                print("Target (ys) stats:")
-                for k, v in ys.items():
-                    print(f"  {k}: min={v.min()}, max={v.max()}, unique values={v.unique().shape[0]}")
-                # Check mask
-                print("Mask (ms) stats:")
-                for k, v in ms.items():
-                    print(f"  {k}: sum={v.sum()}, shape={v.shape}")
-                print(f"  Total mask sum: {sum(v.sum() for v in ms.values())}")
-
-            self.optimizer.zero_grad()
-            loss.backward()
-
-            # Gradient clipping to prevent exploding gradients
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
-
-            self.optimizer.step()
-            self.losses.append(loss.item())
-
-        elapsed = time.time() - start_time
-
-        # Metrics
-        num_parameters = sum(p.numel() for p in self.model.parameters())
-        model_size_bytes = sum(p.element_size() * p.nelement() for p in self.model.parameters())
-        time_per_iter = elapsed / max(1, len(self.losses))
-
-        self.metrics = {
-            "num_parameters": num_parameters,
-            "model_size_bytes": model_size_bytes,
-            "time_per_iter": time_per_iter,
-            "final_loss": self.losses[-1] if self.losses else float('nan'),
-            "avg_loss": sum(self.losses) / len(self.losses) if self.losses else float('nan'),
-        }
-
-        # Create output directory if it doesn't exist
-        os.makedirs(self.out_dir, exist_ok=True)
-
-        # Plot loss
-        if self.losses:
-            plt.figure(figsize=(10, 6))
-            plt.plot(self.losses)
-            plt.xlabel("Iteration")
-            plt.ylabel("Loss")
-            plt.title("Training Loss")
-            plt.grid(True)
-            out_path = os.path.join(self.out_dir, "loss.png")
-            plt.savefig(out_path)
-            plt.close()
-
-        return self.metrics
-
-
-class AdvancedTrainer:
-    """Extended Trainer with all features from the original train.py"""
-
+    """Trainer class for μGATO with full training capabilities"""
+    
     def __init__(
         self,
         config: MugatoConfig,
@@ -208,88 +59,97 @@ class AdvancedTrainer:
         ddp_rank: int = 0,
         ddp_local_rank: int = 0,
         ddp_world_size: int = 1,
-        device_type: str = "cuda",
+        device_type: str = None,
         master_process: bool = True,
     ):
         self.config = config
         self.tokenizer = tokenizer
         self.device = torch.device(config.device)
+        
+        # Detect device type if not provided
+        if device_type is None:
+            device_type = (
+                "cuda" if "cuda" in str(self.device) 
+                else "mps" if "mps" in str(self.device) 
+                else "cpu"
+            )
         self.device_type = device_type
-
+        
         # Training params
         self.batch_size = batch_size
         self.max_iters = max_iters
         self.eval_interval = eval_interval
         self.eval_iters = eval_iters
         self.log_interval = log_interval
-
+        
         # Optimizer params
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.beta1 = beta1
         self.beta2 = beta2
         self.grad_clip = grad_clip
-
+        
         # LR decay params
         self.decay_lr = decay_lr
         self.warmup_iters = warmup_iters
         self.lr_decay_iters = lr_decay_iters
         self.min_lr = min_lr
-
+        
         # System params
         self.gradient_accumulation_steps = gradient_accumulation_steps
         self.dtype = dtype
         self.compile_model = compile_model
-
+        
         # Checkpointing
-        self.out_dir = out_dir or config.out_dir
+        self.out_dir = out_dir or getattr(config, 'out_dir', './out')
         self.always_save_checkpoint = always_save_checkpoint
         self.init_from = init_from
         self.resume_path = resume_path
-
+        
         # Logging
         self.wandb_log = wandb_log
         self.wandb_project = wandb_project
         self.wandb_run_name = wandb_run_name
-
+        
         # DDP
         self.ddp = ddp
         self.ddp_rank = ddp_rank
         self.ddp_local_rank = ddp_local_rank
         self.ddp_world_size = ddp_world_size
         self.master_process = master_process
-
+        
         # Config overrides
         self.config_overrides = config_overrides or {}
-
+        
         # Initialize model
         self.iter_num = 0
         self.best_val_loss = 1e9
         self._init_model()
-
+        
         # Initialize dataloaders
         self._init_dataloaders()
-
+        
         # Setup training context
         self._setup_training_context()
-
+        
         # Initialize optimizer
         self._init_optimizer()
-
+        
         # Compile model if requested
         if self.compile_model:
             self._compile()
-
+            
         # Wrap in DDP if needed
         if self.ddp:
             self._wrap_ddp()
-
+            
         # Setup wandb if requested
         if self.wandb_log and self.master_process:
             self._init_wandb()
-
+            
         # Tracking
         self.losses = []
+        self.metrics = {}
         self.running_mfu = -1.0
 
     def _init_model(self):
@@ -305,15 +165,15 @@ class AdvancedTrainer:
             self.model, self.model_args, self.iter_num, self.best_val_loss = init_model(
                 self.tokenizer, self.init_from, device=str(self.device), config_overrides=self.config_overrides
             )
-
+            
         # Crop block size if needed
         if self.config.block_size < self.model.config.block_size:
             self.model, self.model_args = crop_block_size(
                 self.model, self.config.block_size, self.model_args
             )
-
+            
         self.model.to(self.device)
-
+        
     def _init_dataloaders(self):
         """Initialize train/val/test dataloaders"""
         self.train_dataloader = iter(
@@ -331,7 +191,7 @@ class AdvancedTrainer:
                 self.tokenizer, self.batch_size, split="test", block_size=self.config.block_size
             )
         )
-
+        
     def _setup_training_context(self):
         """Setup autocast context and grad scaler"""
         ptdtype = {
@@ -339,38 +199,38 @@ class AdvancedTrainer:
             "bfloat16": torch.bfloat16,
             "float16": torch.float16,
         }[self.dtype]
-
+        
         self.ctx = (
             nullcontext()
             if self.device_type in ["cpu", "mps"]
             else torch.amp.autocast(device_type=self.device_type, dtype=ptdtype)
         )
-
+        
         # Initialize GradScaler for float16
         self.scaler = torch.amp.GradScaler(enabled=(self.dtype == "float16"))
-
+        
     def _init_optimizer(self):
         """Initialize the optimizer"""
         self.optimizer = self.model.configure_optimizers(
             self.weight_decay, self.learning_rate, (self.beta1, self.beta2), self.device_type
         )
-
+        
         if self.init_from == "resume" and self.resume_path:
             checkpoint = torch.load(self.resume_path, map_location=self.device)
             self.optimizer.load_state_dict(checkpoint["optimizer"])
             del checkpoint  # free up memory
-
+            
     def _compile(self):
         """Compile the model with PyTorch 2.0"""
         print("compiling the model... (takes a ~minute)")
         torch._dynamo.config.optimize_ddp = False
         self.unoptimized_model = self.model
         self.model = torch.compile(self.model)
-
+        
     def _wrap_ddp(self):
         """Wrap model in DistributedDataParallel"""
         self.model = DDP(self.model, device_ids=[self.ddp_local_rank])
-
+        
     def _init_wandb(self):
         """Initialize Weights & Biases logging"""
         import wandb
@@ -379,7 +239,7 @@ class AdvancedTrainer:
             name=self.wandb_run_name,
             config=self.config_overrides
         )
-
+        
     def get_batch(self, split):
         """Get a batch of data from the specified split"""
         if split == "train":
@@ -390,7 +250,7 @@ class AdvancedTrainer:
             X, Y, M = next(next(self.test_dataloader))
         X, Y, M = X.to(self.device), Y.to(self.device), M.to(self.device)
         return X, Y, M
-
+        
     @torch.no_grad()
     def estimate_loss(self):
         """Estimate loss over train and validation sets"""
@@ -406,14 +266,14 @@ class AdvancedTrainer:
             out[split] = losses.mean()
         self.model.train()
         return out
-
+        
     def save_checkpoint(self, losses):
         """Save a checkpoint"""
         if self.ddp:
             raw_model = self.model.module
         else:
             raw_model = self.model
-
+            
         checkpoint = {
             "model": raw_model.state_dict(),
             "optimizer": self.optimizer.state_dict(),
@@ -428,19 +288,19 @@ class AdvancedTrainer:
             self.out_dir,
             f"{datetime.now().strftime('%Y-%m-%d')}-ckpt.pt"),
         )
-
+        
     def train(self, eval_only=False):
-        """Main training loop"""
+        """Main training loop with all features"""
         # Get initial batch
         X, Y, M = self.get_batch("train")
         t0 = time.time()
         local_iter_num = 0
-
+        
         if self.ddp:
             raw_model = self.model.module
         else:
             raw_model = self.model
-
+            
         while True:
             # Set learning rate for this iteration
             lr = get_learning_rate(
@@ -449,7 +309,7 @@ class AdvancedTrainer:
             )
             for param_group in self.optimizer.param_groups:
                 param_group["lr"] = lr
-
+                
             # Evaluate and save checkpoints
             if self.iter_num % self.eval_interval == 0 and self.master_process:
                 losses = self.estimate_loss()
@@ -457,7 +317,7 @@ class AdvancedTrainer:
                     f"step {self.iter_num}: train loss {losses['train']:.4f}, "
                     f"val loss {losses['val']:.4f}"
                 )
-
+                
                 if self.wandb_log:
                     import wandb
                     wandb.log({
@@ -467,15 +327,15 @@ class AdvancedTrainer:
                         "lr": lr,
                         "mfu": self.running_mfu * 100,
                     })
-
+                    
                 if losses["val"] < self.best_val_loss or self.always_save_checkpoint:
                     self.best_val_loss = losses["val"]
                     if self.iter_num > 0:
                         self.save_checkpoint(losses)
-
+                        
             if self.iter_num == 0 and eval_only:
                 break
-
+                
             # Forward backward update with gradient accumulation
             for micro_step in range(self.gradient_accumulation_steps):
                 if self.ddp:
@@ -486,52 +346,74 @@ class AdvancedTrainer:
                 with self.ctx:
                     logits, loss = self.model(X, Y, M)
                     loss = loss / self.gradient_accumulation_steps
-
+                    
                 # Get next batch while GPU is working
                 X, Y, M = self.get_batch("train")
-
+                
                 # Backward pass
                 self.scaler.scale(loss).backward()
-
+                
             # Clip gradients
             if self.grad_clip != 0.0:
                 self.scaler.unscale_(self.optimizer)
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.grad_clip)
-
+                
             # Step optimizer
             self.scaler.step(self.optimizer)
             self.scaler.update()
             self.optimizer.zero_grad(set_to_none=True)
-
+            
             # Timing and logging
             t1 = time.time()
             dt = t1 - t0
             t0 = t1
-
+            
             if self.iter_num % self.log_interval == 0 and self.master_process:
                 lossf = loss.item() * self.gradient_accumulation_steps
+                self.losses.append(lossf)  # Track losses for plotting
                 if local_iter_num >= 5:  # Let training settle
                     mfu = raw_model.estimate_mfu(
                         self.batch_size * self.gradient_accumulation_steps, dt
                     )
                     self.running_mfu = (
-                        mfu if self.running_mfu == -1.0
+                        mfu if self.running_mfu == -1.0 
                         else 0.9 * self.running_mfu + 0.1 * mfu
                     )
                 print(
                     f"iter {self.iter_num}: loss {lossf:.4f}, "
                     f"time {dt*1000:.2f}ms, mfu {self.running_mfu*100:.2f}%"
                 )
-
+                
             self.iter_num += 1
             local_iter_num += 1
-
+            
             # Check termination
             if self.iter_num > self.max_iters:
                 break
-
+                
+        # Plot loss if we have losses
+        if self.losses and self.master_process:
+            os.makedirs(self.out_dir, exist_ok=True)
+            plt.figure(figsize=(10, 6))
+            plt.plot(self.losses)
+            plt.xlabel("Iteration")
+            plt.ylabel("Loss")
+            plt.title("Training Loss")
+            plt.grid(True)
+            out_path = os.path.join(self.out_dir, "loss.png")
+            plt.savefig(out_path)
+            plt.close()
+            
+        # Calculate metrics
+        num_parameters = sum(p.numel() for p in self.model.parameters())
+        model_size_bytes = sum(p.element_size() * p.nelement() for p in self.model.parameters())
+        
         return {
             "final_loss": lossf if 'lossf' in locals() else None,
             "best_val_loss": self.best_val_loss,
             "final_iter": self.iter_num,
+            "num_parameters": num_parameters,
+            "model_size_bytes": model_size_bytes,
+            "time_per_iter": (time.time() - t0) / max(1, local_iter_num),
+            "avg_loss": sum(self.losses) / len(self.losses) if self.losses else float('nan'),
         }
