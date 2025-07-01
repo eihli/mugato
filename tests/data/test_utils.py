@@ -28,4 +28,6 @@ def test_combined_dataloader(tokenizer):
     batch = next(dataloader)
     xs, ys, mask = batch
     keys_2 = list(xs.keys())
-    assert keys_1 != keys_2, "Iterating over the combined dataloader should change the keys"
+    assert keys_1 != keys_2, (
+        "Iterating over the combined dataloader should change the keys"
+    )

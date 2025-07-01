@@ -1,18 +1,20 @@
+import logging
+import random
 from ast import literal_eval
 from functools import partial
-import random
+
 import torch
-from torch.utils.data import DataLoader, Dataset
-from mugato.data.utils import splits, infinite_dataloader
+from datasets import load_dataset
+from torch.utils.data import DataLoader
+
+from mugato.data.utils import infinite_dataloader
 from mugato.utils import (
     Timesteps,
     TransformDataset,
+    as_tensor,
     generic_collate_fn,
     image_transform,
-    as_tensor,
 )
-from datasets import load_dataset
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +32,16 @@ def example():
         'question': 'What is the man by the bags awaiting?',
         'choices': ['skateboarder', 'train', 'delivery', 'cab'],
         'correct_choice_idx': 3,
-        'direct_answers': "['ride', 'ride', 'bus', 'taxi', 'travelling', 'traffic', 'taxi', 'cab', 'cab', 'his ride']",
+        'direct_answers': "['ride', 'ride', 'bus', 'taxi', 'travelling',"
+                        " 'traffic', 'taxi', 'cab', 'cab', 'his ride']",
         'difficult_direct_answer': False,
-        'rationales': ['A train would not be on the street, he would not have luggage waiting for a delivery, and the skateboarder is there and not paying attention to him so a cab is the only possible answer.',
-        'He has bags as if he is going someone, and he is on a road waiting for vehicle that can only be moved on the road and is big enough to hold the bags.',
+        'rationales': [
+            'A train would not be on the street, he would not have luggage '
+            'waiting for a delivery, and the skateboarder is there and not '
+            'paying attention to him so a cab is the only possible answer.',
+            'He has bags as if he is going someone, and he is on a road '
+            'waiting for vehicle that can only be moved on the road and is '
+            'big enough to hold the bags.',
         'He looks to be waiting for a paid ride to pick him up.']
     }
     """
@@ -50,7 +58,7 @@ def initialize():
 
 
 def tokenize(tokenizer, sample):
-    logger.debug(f"Tokenizing a_ok_vqa.")
+    logger.debug("Tokenizing a_ok_vqa.")
     question = [tokenizer.encode_text(sample["question"])]
     image = [tokenizer.encode_image(image_transform(as_tensor(sample["image"])))]
     eot = torch.tensor([[tokenizer.eot_token_id]])
@@ -104,12 +112,23 @@ def create_dataloader(tokenizer, batch_size, split="train", block_size=1024):
     return DataLoader(
         dataset,
         batch_size=batch_size,
-        collate_fn=partial(generic_collate_fn, sequence_length=block_size, mask_keys=["answer"]),
+        collate_fn=partial(
+            generic_collate_fn, sequence_length=block_size, mask_keys=["answer"]
+        ),
     )
 
 def create_infinite_dataloader(tokenizer, batch_size, split="train", block_size=1024):
     dataset = initialize()
     dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
     return infinite_dataloader(
-        partial(DataLoader, dataset, batch_size=batch_size, collate_fn=partial(generic_collate_fn, sequence_length=block_size, mask_keys=["answer"]))
+        partial(
+            DataLoader,
+            dataset,
+            batch_size=batch_size,
+            collate_fn=partial(
+                generic_collate_fn,
+                sequence_length=block_size,
+                mask_keys=["answer"]
+            )
+        )
     )

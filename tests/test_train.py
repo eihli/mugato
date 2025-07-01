@@ -4,7 +4,6 @@ import tiktoken
 import torch
 
 from mugato import train
-from mugato.data.four_rooms import create_dataloader as create_four_rooms_dataloader
 from mugato.data.shakespeare import create_dataloader as create_shakespeare_dataloader
 from mugato.tokenizer import Tokenizer
 from mugato.utils import data_home, select_device
@@ -16,8 +15,11 @@ def test_trainer_runs_and_outputs():
         device=select_device(),
         n_embd=128,
         block_size=1024,
-        vocab_size=51281,  # Correct vocab size: text vocab (50257) + discrete vocab (1024)
-        out_dir=os.path.join(data_home, "out", "test_trainer"),  # Use subdirectory for test
+        vocab_size=51281,  # Correct vocab size:
+        # text vocab (50257) + discrete vocab (1024)
+        out_dir=os.path.join(
+            data_home, "out", "test_trainer"
+        ),  # Use subdirectory for test
     )
     # Minimal transformer overrides
     transformer_overrides = {
@@ -49,8 +51,13 @@ def test_trainer_runs_and_outputs():
     metrics = trainer.train()
 
     # Check that loss plot exists
-    assert len(trainer.losses) == trainer.max_iters + 1, f"Expected {trainer.max_iters + 1} losses (including iter 0), got {len(trainer.losses)}"
-    assert all(not torch.isnan(torch.tensor(loss)) for loss in trainer.losses), "Found NaN losses"
+    assert len(trainer.losses) == trainer.max_iters + 1, (
+        f"Expected {trainer.max_iters + 1} losses (including iter 0), "
+        f"got {len(trainer.losses)}"
+    )
+    assert all(
+        not torch.isnan(torch.tensor(loss)) for loss in trainer.losses
+    ), "Found NaN losses"
 
     loss_plot = os.path.join(config.out_dir, "loss.png")
     assert os.path.exists(loss_plot), f"Loss plot was not created at {loss_plot}"
@@ -105,13 +112,13 @@ def test_shakespeare_training():
     batch = next(iter(dataloader))
     xs, ys, ms = batch
 
-    print(f"\nBatch info:")
+    print("\nBatch info:")
     print(f"  xs keys: {list(xs.keys())}")
     print(f"  ys keys: {list(ys.keys())}")
     print(f"  ms keys: {list(ms.keys())}")
 
     # Shakespeare has only 'text' key
-    print(f"\nText data shapes:")
+    print("\nText data shapes:")
     print(f"  xs['text'] shape: {xs['text'].shape}")
     print(f"  ys['text'] shape: {ys['text'].shape}")
     print(f"  ms['text'] shape: {ms['text'].shape}")
@@ -119,7 +126,7 @@ def test_shakespeare_training():
     print(f"  mask mean: {ms['text'].float().mean():.3f}")
 
     # Show some actual text tokens
-    print(f"\nSample text tokens (first 20):")
+    print("\nSample text tokens (first 20):")
     print(f"  xs: {xs['text'][0, 0, :20]}")
     print(f"  ys: {ys['text'][0, 0, :20]}")
 

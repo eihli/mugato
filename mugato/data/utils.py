@@ -1,12 +1,13 @@
 import importlib
-from itertools import cycle
-import pkgutil
-import mugato.data
-import torch
-from torch.utils.data import DataLoader
-from functools import partial
-from mugato.utils import TransformDataset, generic_collate_fn
 import logging
+import pkgutil
+from functools import partial
+from itertools import cycle
+
+from torch.utils.data import DataLoader
+
+import mugato.data
+from mugato.utils import TransformDataset, generic_collate_fn
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +65,15 @@ def initialize_all():
         datasets[dataset_module.__name__] = dataset_module.initialize()
     return datasets
 
-def create_combined_dataloader_from_module(tokenizer, batch_size, split="train", block_size=1024):
+def create_combined_dataloader_from_module(
+    tokenizer, batch_size, split="train", block_size=1024
+):
     dataset_modules = find_datasets()
     all_dataloaders = []
     for dataset_module in dataset_modules:
-        data_loader = dataset_module.create_infinite_dataloader(tokenizer, batch_size, split, block_size)
+        data_loader = dataset_module.create_infinite_dataloader(
+            tokenizer, batch_size, split, block_size
+        )
         all_dataloaders.append(data_loader)
     return cycle(all_dataloaders)
 

@@ -10,9 +10,11 @@ $ torchrun --standalone --nproc_per_node=4 train.py
 
 To run with DDP on 4 gpus across 2 nodes, example:
 - Run on the first (master) node with example IP 123.456.123.456:
-$ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=0 --master_addr=123.456.123.456 --master_port=1234 train.py
+$ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=0 \
+    --master_addr=123.456.123.456 --master_port=1234 train.py
 - Run on the worker node:
-$ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123.456 --master_port=1234 train.py
+$ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 \
+    --master_addr=123.456.123.456 --master_port=1234 train.py
 (If your cluster does not have Infiniband interconnect prepend NCCL_IB_DISABLE=1)
 
 To run with MPU on MacOS:
@@ -48,6 +50,7 @@ wandb_log = False  # disabled by default
 wandb_project = "mugato"
 wandb_run_name = f"alpha-{datetime.now().isoformat()[:-7]}"
 # data
+dataset = "openwebtext"
 gradient_accumulation_steps = 5 * 8  # used to simulate larger batch sizes
 batch_size = 6  # if gradient_accumulation_steps > 1, this is the micro-batch size
 block_size = 1024
@@ -82,7 +85,7 @@ compile = False  # use PyTorch 2.0 to compile the model to be faster
 config_keys = [
     k
     for k, v in globals().items()
-    if not k.startswith("_") and isinstance(v, (int, float, bool, str))
+    if not k.startswith("_") and isinstance(v, int | float | bool | str)
 ]
 device = str(select_device())  # See configurator.py as to why this is a string.
 exec(open("configurator.py").read())  # overrides from command line or config file
@@ -115,7 +118,9 @@ def main():
         ddp_rank = 0
         ddp_local_rank = 0
 
-    tokens_per_iter = gradient_accumulation_steps * ddp_world_size * batch_size * block_size
+    tokens_per_iter = (
+        gradient_accumulation_steps * ddp_world_size * batch_size * block_size
+    )
     print(f"tokens per iteration will be: {tokens_per_iter:,}")
 
     if master_process:

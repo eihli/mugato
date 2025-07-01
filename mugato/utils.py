@@ -108,7 +108,7 @@ def generic_collate_fn(batch, sequence_length=1024, mask_keys=None):
         )
 
     # Process the non-empty samples
-    xs, ys = [v for v in zip(*sliced, strict=False)]
+    xs, ys = list(zip(*sliced, strict=False))
     xs, ys, ms = pad(xs), pad(ys), mask(ys, mask_keys)
     return xs, ys, ms
 
@@ -158,7 +158,7 @@ def pad(batch, padding_value=0):
     Expects a *list of OrderedDict* (this is important).
     """
     padded = {}
-    for k, v in batch[0].items():
+    for k, _ in batch[0].items():
         episode_length = max(sample[k].size(0) for sample in batch)
         token_length = max(sample[k].size(1) for sample in batch)
         for sample in batch:
@@ -177,7 +177,7 @@ def pad(batch, padding_value=0):
 
 def mask(batch, mask_keys):
     result = Timesteps()
-    for k, v in batch[0].items():
+    for k, _ in batch[0].items():
         episode_lengths = [sample[k].size(0) for sample in batch]
         token_lengths = [sample[k].size(1) for sample in batch]
         result[k] = torch.zeros(len(batch), max(episode_lengths), max(token_lengths))

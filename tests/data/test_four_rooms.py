@@ -1,7 +1,8 @@
 import pytest
-from mugato.data.four_rooms import initialize, create_dataloader
-from mugato.tokenizer import Tokenizer
 import tiktoken
+
+from mugato.data.four_rooms import create_dataloader, initialize
+from mugato.tokenizer import Tokenizer
 
 
 @pytest.fixture

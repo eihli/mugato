@@ -1,9 +1,11 @@
 from functools import partial
-import numpy as np
+
 import minari
 import minigrid
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
+
 from mugato.data.utils import infinite_dataloader
 from mugato.utils import (
     Timesteps,
@@ -24,7 +26,8 @@ def initialize():
     # NOTE: Order matters here!
     # Minari has some hidden *shared* internal state when you set `episode_indices`.
     # If you set anything's `episode_indices` to be *shorter* than `total_episodes`,
-    # then any subsequent sets of `episode_indices` will be relative to the new shorter length.
+    # then any subsequent sets of `episode_indices` will be relative to the new
+    # shorter length.
     # TODO: Submit a bug report and a fix.
     test_data.episode_indices = np.arange(val_split, train_data.total_episodes)
     val_data.episode_indices = np.arange(train_split, val_split)
@@ -91,8 +94,10 @@ def tokenize(tokenizer, episode):
             "mission": torch.zeros_like(mission),
             "direction": torch.zeros_like(direction),
             # We're not predicting image patches, so we don't need "real" targets.
-            # We just need something with the same channel dimensionality as our other tokens
-            # so that we can concat them all together and predict on the sequenced tokens.
+            # We just need something with the same channel dimensionality as
+            # our other tokens
+            # so that we can concat them all together and predict on the
+            # sequenced tokens.
             "image": torch.zeros(image.size(0), image.size(1), 1),
             "action": action[:, 1:],
         }
@@ -116,5 +121,14 @@ def create_infinite_dataloader(tokenizer, batch_size, split="train", block_size=
     dataset = initialize()
     dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
     return infinite_dataloader(
-        partial(DataLoader, dataset, batch_size=batch_size, collate_fn=partial(generic_collate_fn, sequence_length=block_size, mask_keys=["action"]))
+        partial(
+            DataLoader,
+            dataset,
+            batch_size=batch_size,
+            collate_fn=partial(
+                generic_collate_fn,
+                sequence_length=block_size,
+                mask_keys=["action"]
+            )
+        )
     )

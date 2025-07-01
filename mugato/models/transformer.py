@@ -1,22 +1,21 @@
 """
 Transformer model implementation for Mugato.
 
-This module contains the transformer-specific code that works with the Mugato architecture.
+This module contains the transformer-specific code that works with the Mugato
+architecture.
 It provides functions to initialize and configure a transformer model that can be used
 as the sequence model within Mugato.
 """
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Optional, Dict, Any, Tuple, Union
-
-import os
 import math
+import os
+from pathlib import Path
+from typing import Any
+
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from mugato.mugato import Mugato, MugatoConfig, TransformerConfig
-from mugato.nano_gpt import Block, GPT, GPTConfig, LayerNorm
+from mugato.nano_gpt import GPT, Block
 
 # Default transformer configuration
 block_size = 768
@@ -27,24 +26,24 @@ dropout = 0.0  # for pretraining 0 is good, for finetuning try 0.1+
 bias = False  # do we use bias inside LayerNorm and Linear layers?
 
 
-transformer_model_args = dict(
-    n_layer=n_layer,
-    n_head=n_head,
-    n_embd=n_embd,
-    block_size=block_size,
-    bias=bias,
-    vocab_size=50257,  # tiktoken.get_encoding("r50k_base").n_vocab
-    dropout=dropout,
-)
+transformer_model_args = {
+    "n_layer": n_layer,
+    "n_head": n_head,
+    "n_embd": n_embd,
+    "block_size": block_size,
+    "bias": bias,
+    "vocab_size": 50257,  # tiktoken.get_encoding("r50k_base").n_vocab
+    "dropout": dropout,
+}
 
-mugato_model_args = dict(
-    n_embd=n_embd,
-    block_size=block_size,
-    vocab_size=51281,  # text vocab + discrete vocab
-)
+mugato_model_args = {
+    "n_embd": n_embd,
+    "block_size": block_size,
+    "vocab_size": 51281,  # text vocab + discrete vocab
+}
 
 
-def _as_abspath(path: Optional[str]) -> Optional[Path]:
+def _as_abspath(path: str | None) -> Path | None:
     """Convert a string path to an absolute Path object if it's not None."""
     if path is not None and os.path.isabs(path):
         return Path(path)
@@ -53,18 +52,18 @@ def _as_abspath(path: Optional[str]) -> Optional[Path]:
 
 def create_transformer(config: TransformerConfig) -> nn.ModuleDict:
     """Create a transformer model using the given configuration."""
-    return nn.ModuleDict(
-        dict(
-            wpe=nn.Embedding(config.block_size, config.n_embd),
-            drop=nn.Dropout(config.dropout),
-            h=nn.ModuleList(
-                [Block(config) for _ in range(config.n_layer)]
-            ),
-        )
-    )
+    return nn.ModuleDict({
+        "wpe": nn.Embedding(config.block_size, config.n_embd),
+        "drop": nn.Dropout(config.dropout),
+        "h": nn.ModuleList(
+            [Block(config) for _ in range(config.n_layer)]
+        ),
+    })
 
 
-def init_from_scratch(tokenizer, config_overrides: Optional[Dict[str, Any]] = None) -> Tuple[Mugato, TransformerConfig, MugatoConfig]:
+def init_from_scratch(
+    tokenizer, config_overrides: dict[str, Any] | None = None
+) -> tuple[Mugato, TransformerConfig, MugatoConfig]:
     """Initialize a new model from scratch with optional configuration overrides."""
     # Apply any overrides to the default configuration
     model_args = transformer_model_args.copy()
@@ -88,7 +87,9 @@ def init_from_scratch(tokenizer, config_overrides: Optional[Dict[str, Any]] = No
     return model, transformer_config, mugato_config
 
 
-def init_from_resume(tokenizer, checkpoint_path: str, device: str = "cpu") -> Tuple[Mugato, Dict[str, Any], int, float]:
+def init_from_resume(
+    tokenizer, checkpoint_path: str, device: str = "cpu"
+) -> tuple[Mugato, dict[str, Any], int, float]:
     """Resume training from a checkpoint."""
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
     checkpoint_model_args = checkpoint["model_args"]
@@ -108,7 +109,7 @@ def init_from_resume(tokenizer, checkpoint_path: str, device: str = "cpu") -> Tu
     state_dict = checkpoint["model"]
     # Fix the keys of the state dictionary if needed
     unwanted_prefix = "_orig_mod."
-    for k, v in list(state_dict.items()):
+    for k, _ in list(state_dict.items()):
         if k.startswith(unwanted_prefix):
             state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)
 
@@ -121,7 +122,9 @@ def init_from_resume(tokenizer, checkpoint_path: str, device: str = "cpu") -> Tu
     return model, checkpoint, iter_num, best_val_loss
 
 
-def init_from_gpt2(tokenizer, model_type: str, override_args: Optional[Dict[str, Any]] = None) -> Tuple[GPT, Dict[str, Any]]:
+def init_from_gpt2(
+    tokenizer, model_type: str, override_args: dict[str, Any] | None = None
+) -> tuple[GPT, dict[str, Any]]:
     """Initialize from OpenAI GPT-2 weights."""
     override_args = override_args or {}
     model = GPT.from_pretrained(model_type, override_args)
@@ -137,11 +140,11 @@ def init_from_gpt2(tokenizer, model_type: str, override_args: Optional[Dict[str,
 def init_model(
     tokenizer,
     init_from: str = "scratch",
-    resume_path: Optional[str] = None,
-    gpt2_model_type: Optional[str] = None,
-    config_overrides: Optional[Dict[str, Any]] = None,
+    resume_path: str | None = None,
+    gpt2_model_type: str | None = None,
+    config_overrides: dict[str, Any] | None = None,
     device: str = "cpu"
-) -> Tuple[Union[Mugato, GPT], Dict[str, Any], int, float]:
+) -> tuple[Mugato | GPT, dict[str, Any], int, float]:
     """
     Initialize a model based on the specified initialization strategy.
 
@@ -166,20 +169,30 @@ def init_model(
     elif init_from == "resume":
         if not resume_path:
             raise ValueError("resume_path must be provided when init_from is 'resume'")
-        model, checkpoint, iter_num, best_val_loss = init_from_resume(tokenizer, resume_path, device)
+        model, checkpoint, iter_num, best_val_loss = init_from_resume(
+            tokenizer, resume_path, device
+        )
         return model, transformer_model_args, iter_num, best_val_loss
 
     elif init_from.startswith("gpt2"):
         if not gpt2_model_type:
-            gpt2_model_type = init_from  # Use init_from as model type if not explicitly provided
-        model, updated_model_args = init_from_gpt2(tokenizer, gpt2_model_type, config_overrides)
+            # Use init_from as model type if not explicitly provided
+            gpt2_model_type = init_from
+        model, updated_model_args = init_from_gpt2(
+            tokenizer, gpt2_model_type, config_overrides
+        )
         return model, updated_model_args, iter_num, best_val_loss
 
     else:
-        raise ValueError(f"Unknown init_from value: {init_from}. Must be 'scratch', 'resume', or start with 'gpt2'")
+        raise ValueError(
+            f"Unknown init_from value: {init_from}. "
+            "Must be 'scratch', 'resume', or start with 'gpt2'"
+        )
 
 
-def crop_block_size(model: Union[Mugato, GPT], block_size: int, model_args: Dict[str, Any]) -> Tuple[Union[Mugato, GPT], Dict[str, Any]]:
+def crop_block_size(
+    model: Mugato | GPT, block_size: int, model_args: dict[str, Any]
+) -> tuple[Mugato | GPT, dict[str, Any]]:
     """
     Crop the model's block size if needed.
 
@@ -209,8 +222,14 @@ def crop_block_size(model: Union[Mugato, GPT], block_size: int, model_args: Dict
     return model, model_args
 
 
-def get_learning_rate(iter_num: int, learning_rate: float, warmup_iters: int,
-                      lr_decay_iters: int, min_lr: float, decay_lr: bool = True) -> float:
+def get_learning_rate(
+    iter_num: int,
+    learning_rate: float,
+    warmup_iters: int,
+    lr_decay_iters: int,
+    min_lr: float,
+    decay_lr: bool = True
+) -> float:
     """
     Calculate learning rate based on a schedule with warmup and cosine decay.
 

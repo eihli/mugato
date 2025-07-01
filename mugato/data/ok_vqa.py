@@ -1,16 +1,18 @@
-from functools import partial
 import random
+from functools import partial
+
 import torch
-from torch.utils.data import DataLoader, Dataset
-from mugato.data.utils import splits, infinite_dataloader
+from datasets import load_dataset
+from torch.utils.data import DataLoader
+
+from mugato.data.utils import infinite_dataloader
 from mugato.utils import (
     Timesteps,
     TransformDataset,
+    as_tensor,
     generic_collate_fn,
     image_transform,
-    as_tensor,
 )
-from datasets import load_dataset
 
 
 def initialize():
@@ -66,7 +68,9 @@ def create_dataloader(tokenizer, batch_size, split="train", block_size=1024):
     return DataLoader(
         dataset,
         batch_size=batch_size,
-        collate_fn=partial(generic_collate_fn, sequence_length=block_size, mask_keys=["answer"]),
+        collate_fn=partial(
+            generic_collate_fn, sequence_length=block_size, mask_keys=["answer"]
+        ),
     )
 
 
@@ -74,5 +78,14 @@ def create_infinite_dataloader(tokenizer, batch_size, split="train", block_size=
     dataset = initialize()
     dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
     return infinite_dataloader(
-        partial(DataLoader, dataset, batch_size=batch_size, collate_fn=partial(generic_collate_fn, sequence_length=block_size, mask_keys=["answer"]))
+        partial(
+            DataLoader,
+            dataset,
+            batch_size=batch_size,
+            collate_fn=partial(
+                generic_collate_fn,
+                sequence_length=block_size,
+                mask_keys=["answer"]
+            )
+        )
     )

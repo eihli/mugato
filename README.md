@@ -26,7 +26,7 @@ Status:
 - [✅] [data/](./mugato/data/) directory has clear, simple examples of manipulating datasets making them easy for the model to use as training data
 - [✅] [mugato.py](./mugato.py) implements the model in a way that makes it easy to swap out a transformer for any other sequence model
 - [✅] [train.py](./train.py) is a simple demonstration of a multi-GPU training loop
-- [🚧] [mugato.ipynb](./mugato.ipynb) cells are ordered for optimal consumption and is thoroughly documented with markdown cells and interactive elements
+- [✅] [mugato.ipynb](./mugato.ipynb) cells are ordered for optimal consumption and is thoroughly documented with markdown cells and interactive elements
 
 Things that are beyond the scope of the Gato paper, but are good explorations:
 
@@ -154,7 +154,7 @@ Once we concat, we'll have:
 #                    |   |    Mission Tokens
 #                    |   |    |    Image Tokens
 #                    |   |    |    |    Action Tokens
-#                    |   |    |    |    |      Channels 
+#                    |   |    |    |    |      Channels
 #                    |   |    |    |    |      |
 batch = torch.arange(2 * 3 * (4 + 256 + 1) * 768).view(...),
 ```
@@ -167,7 +167,7 @@ batch = torch.arange(2 * 3 * (4 + 256 + 1) * 768).view(2, 783, 768),
 
 And now we've got something in the shape to send to something like a transformer.
 
-## Text and other modalities 
+## Text and other modalities
 
 With text, we don't *need* to jump through nearly as many hoops to get it into a format that we can feed into something like a transformer.
 

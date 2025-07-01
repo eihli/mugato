@@ -1,7 +1,8 @@
 import pytest
-from mugato.data.shakespeare import initialize, create_dataloader
-from mugato.tokenizer import Tokenizer
 import tiktoken
+
+from mugato.data.shakespeare import create_dataloader, initialize
+from mugato.tokenizer import Tokenizer
 
 
 @pytest.fixture

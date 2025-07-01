@@ -1,13 +1,14 @@
 import math
-from typing import List, Protocol
-from einops import rearrange
+from typing import Protocol
+
 import torch
+from einops import rearrange
+
 from mugato.utils import (
-    as_tensor,
-    mu_law_encode,
-    mu_law_decode,
     clamp,
     discretize,
+    mu_law_decode,
+    mu_law_encode,
     undiscretize,
 )
 
@@ -16,8 +17,8 @@ class TextTokenizer(Protocol):
     n_vocab: int
     eot_token: int
 
-    def encode(self, text: str) -> List[int]: ...
-    def decode(self, tokens: List[int]) -> str: ...
+    def encode(self, text: str) -> list[int]: ...
+    def decode(self, tokens: list[int]) -> str: ...
 
 
 class Tokenizer:
@@ -70,7 +71,8 @@ class Tokenizer:
         return xs
 
     def decode_image(self, tokens, image_shape=(3, 192, 192), patch_size=16):
-        # Slightly lossy because I'm not saving the values used for scaling from encoding.
+        # Slightly lossy because I'm not saving the values used for scaling
+        # from encoding.
         patches = (tokens * math.sqrt(patch_size) + 1) / 2
         images = patches_to_image(patches, image_shape, patch_size=patch_size)
         return images
@@ -80,11 +82,10 @@ def image_to_patches(image, patch_size=16):
     return rearrange(image, "c (h s1) (w s2) -> (h w) (c s1 s2)", s1=16, s2=16)
 
 
-# We don't need this as part of Gato. It's just here to play with and visually test the code.
+# We don't need this as part of Gato. It's just here to play with and visually
+# test the code.
 def patches_to_image(patches, image_shape, patch_size=12):
     channels, height, width = image_shape
-    patch_height = height // patch_size
-    patch_width = width // patch_size
     reconstructed = rearrange(
         patches,
         "(h w) (c p1 p2) -> c (h p1) (w p2)",

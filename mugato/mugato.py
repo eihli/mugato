@@ -25,7 +25,8 @@ class Embedder:
         The size of the lookup embedding table is the combined size of
         the text embedding table and the discrete embedding table. The paper
         chooses an ~arbitrary number of discrete embeddings to support, 1024,
-        and those get tokenized to be in the range [text_vocab_size, text_vocab_size+1024).
+        and those get tokenized to be in the range
+        [text_vocab_size, text_vocab_size+1024).
         """
         B, E, T, C = data.shape
         n_embd = self.lookup_embedding.weight.size(-1)
@@ -39,12 +40,8 @@ class Embedder:
             embeddings = self.image_embedding(images)
             return embeddings.view(B, E, T, n_embd)
         else:
-            # Zero grad dummy pass for image params
-            dummy = sum(p.sum() * 0 for p in self.image_embedding.parameters())
-            return (
-                self.lookup_embedding(data.view(B * E * T)).view(B, E, T, n_embd)
-                + dummy
-            )
+            # Text/discrete tokens use lookup embedding
+            return self.lookup_embedding(data.view(B * E * T)).view(B, E, T, n_embd)
 
 
 def sequence(embedder, xs, ys=None, ms=None, sequence_length=1024, pad=True):
@@ -93,7 +90,6 @@ class MugatoConfig:
 def init_default_config(transformer_model_args: GPTConfig) -> MugatoConfig:
     text_tokenizer = tiktoken.get_encoding("r50k_base")
     tokenizer = Tokenizer(text_tokenizer)
-    transformer_config = GPTConfig(**transformer_model_args)
     return MugatoConfig(
         tokenizer=tokenizer,
     )
@@ -108,7 +104,8 @@ class TransformerConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = (
-        True  # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+        True  # True: bias in Linears and LayerNorms, like GPT-2.
+        # False: a bit better and faster
     )
 
 
@@ -182,11 +179,13 @@ class Mugato(torch.nn.Module):
 
     def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
         # start with all of the candidate parameters
-        param_dict = {pn: p for pn, p in self.named_parameters()}
+        param_dict = dict(self.named_parameters())
         # filter out those that do not require grad
         param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
-        # create optim groups. Any parameters that is 2D will be weight decayed, otherwise no.
-        # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
+        # create optim groups. Any parameters that is 2D will be weight decayed,
+        # otherwise no.
+        # i.e. all weight tensors in matmuls + embeddings decay, all biases and
+        # layernorms don't.
         decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
         nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
         optim_groups = [
@@ -196,15 +195,17 @@ class Mugato(torch.nn.Module):
         num_decay_params = sum(p.numel() for p in decay_params)
         num_nodecay_params = sum(p.numel() for p in nodecay_params)
         print(
-            f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters"
+            f"num decayed parameter tensors: {len(decay_params)}, "
+            f"with {num_decay_params:,} parameters"
         )
         print(
-            f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters"
+            f"num non-decayed parameter tensors: {len(nodecay_params)}, "
+            f"with {num_nodecay_params:,} parameters"
         )
         # Create AdamW optimizer and use the fused version if it is available
         fused_available = "fused" in inspect.signature(torch.optim.AdamW).parameters
         use_fused = fused_available and device_type == "cuda"
-        extra_args = dict(fused=True) if use_fused else dict()
+        extra_args = {"fused": True} if use_fused else {}
         optimizer = torch.optim.AdamW(
             optim_groups, lr=learning_rate, betas=betas, **extra_args
         )
@@ -231,9 +232,9 @@ class Mugato(torch.nn.Module):
         # first estimate the number of flops we do per iteration.
         # see PaLM paper Appendix B as ref: https://arxiv.org/abs/2204.02311
         N = self.get_num_params()
-        cfg = self.config
         # TODO: Fix hardcoding this.
-        # L, H, Q, T = cfg.n_layer, cfg.n_head, cfg.n_embd // cfg.n_head, cfg.block_size
+        # L, H, Q, T = self.config.n_layer, self.config.n_head,
+        # self.config.n_embd // self.config.n_head, self.config.block_size
         L, H, Q, T = 6, 4, 128, 768
         flops_per_token = 6 * N + 12 * L * H * Q * T
         flops_per_fwdbwd = flops_per_token * T
