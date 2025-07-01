@@ -35,6 +35,7 @@ dependencies = [
     "tensordict>=0.7.2",
     "matplotlib>=3.10.1",
     "torchrl>=0.7.2",
+    "ipython>=9.2.0",
 ]
 
 [project.optional-dependencies]

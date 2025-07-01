@@ -1546,6 +1546,7 @@ source = { editable = "." }
 dependencies = [
     { name = "datasets" },
     { name = "einops" },
+    { name = "ipython" },
     { name = "matplotlib" },
     { name = "minari", extra = ["hdf5"] },
     { name = "minigrid" },
@@ -1583,6 +1584,7 @@ requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=24.2.0" },
     { name = "datasets", specifier = ">=3.0.2" },
     { name = "einops", specifier = ">=0.8.0" },
+    { name = "ipython", specifier = ">=9.2.0" },
     { name = "ipython", marker = "extra == 'dev'", specifier = ">=8.22.1" },
     { name = "ipywidgets", marker = "extra == 'dev'", specifier = ">=8.1.2" },
     { name = "jupyter", marker = "extra == 'dev'", specifier = ">=1.1.1" },
