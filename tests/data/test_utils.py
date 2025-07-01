@@ -15,6 +15,7 @@ from mugato.tokenizer import Tokenizer
 def tokenizer():
     return Tokenizer(tiktoken.get_encoding("r50k_base"))
 
+@pytest.mark.slow
 def test_combined_dataloader(tokenizer):
     combined_dataloader = create_combined_dataloader(
         tokenizer, batch_size=4, split="train"

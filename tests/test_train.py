@@ -1,5 +1,6 @@
 import os
 
+import pytest
 import tiktoken
 import torch
 
@@ -9,6 +10,7 @@ from mugato.tokenizer import Tokenizer
 from mugato.utils import data_home, select_device
 
 
+@pytest.mark.slow
 def test_trainer_runs_and_outputs():
     # Use minimal config for rapid test
     config = train.MugatoConfig(
@@ -74,6 +76,7 @@ def test_trainer_runs_and_outputs():
     assert not torch.isnan(torch.tensor(metrics["final_loss"])), "Final loss is NaN"
     assert not torch.isnan(torch.tensor(metrics["avg_loss"])), "Average loss is NaN"
 
+@pytest.mark.slow
 def test_shakespeare_training():
     """Test training on Shakespeare dataset"""
     config = train.MugatoConfig(
