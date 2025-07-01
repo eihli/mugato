@@ -40,9 +40,16 @@ class Embedder:
             embeddings = self.image_embedding(images)
             return embeddings.view(B, E, T, n_embd)
         else:
-            # Text/discrete tokens use lookup embedding
-            return self.lookup_embedding(data.view(B * E * T)).view(B, E, T, n_embd)
-
+            # Zero grad dummy pass for image params
+            # Resolves:
+            # RuntimeError: Expected to have finished reduction in the prior
+            # iteration before starting a new one. This error indicates that
+            # your module has parameters that were not used in producing loss.
+            dummy = sum(p.sum() * 0 for p in self.image_embedding.parameters())
+            return (
+                self.lookup_embedding(data.view(B * E * T)).view(B, E, T, n_embd)
+                + dummy
+            )
 
 def sequence(embedder, xs, ys=None, ms=None, sequence_length=1024, pad=True):
     embeddings = torch.concat([embedder.embed(v) for k, v in xs.items()], dim=2)
