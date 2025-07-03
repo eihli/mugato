@@ -3,8 +3,9 @@ import os
 import random
 from collections import OrderedDict
 from collections.abc import Callable
+from dataclasses import asdict, is_dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import numpy as np
 import torch
@@ -16,6 +17,20 @@ from IPython.display import display
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision.transforms.functional import pil_to_tensor  # type: ignore
+
+if TYPE_CHECKING:
+    from dataclasses import Field
+
+    @runtime_checkable
+    class DataclassProtocol(Protocol):
+        """Protocol for dataclass instances."""
+        __dataclass_fields__: dict[str, Field[Any]]
+else:
+    # At runtime, use a simpler protocol that doesn't require Field
+    @runtime_checkable
+    class DataclassProtocol(Protocol):
+        """Protocol for dataclass instances."""
+        __dataclass_fields__: dict[str, Any]
 
 xdg_data_home = Path(
     os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
@@ -35,6 +50,13 @@ def as_tensor(x: Image.Image | torch.Tensor | Any) -> torch.Tensor:
         return result
     return x if isinstance(x, torch.Tensor) else torch.tensor(x)  # type: ignore
 
+
+def as_dict(x: DataclassProtocol | dict[str, Any]) -> dict[str, Any]:
+    if is_dataclass(x):
+        return asdict(x)  # type: ignore[arg-type, no-any-return, call-overload]
+    if isinstance(x, dict):
+        return x
+    raise TypeError(f"Expected a dataclass or dict, got {type(x)}")
 
 image_transform = transforms.Compose(
     [

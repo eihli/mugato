@@ -10,9 +10,10 @@ import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
 
+from mugato.config import MugatoConfig, TransformerConfig
 from mugato.data.utils import create_combined_dataloader_from_module
 from mugato.models.transformer import crop_block_size, get_learning_rate, init_model
-from mugato.mugato import Mugato, MugatoConfig
+from mugato.mugato import Mugato
 from mugato.nano_gpt import GPT
 
 
@@ -159,6 +160,17 @@ class Trainer:
 
     def _init_model(self) -> None:
         """Initialize the model based on init_from strategy"""
+        # Create transformer config with overrides
+        transformer_config = TransformerConfig()
+        if self.config_overrides:
+            for key, value in self.config_overrides.items():
+                if hasattr(transformer_config, key):
+                    setattr(transformer_config, key, value)
+
+        # Ensure configs are compatible
+        self.config.n_embd = transformer_config.n_embd
+        self.config.block_size = transformer_config.block_size
+
         if self.init_from == "resume":
             default_out_dir = self.out_dir or "/tmp/mugato"
             checkpoint_path = self.resume_path or os.path.join(
@@ -166,16 +178,19 @@ class Trainer:
             )
             self.model, self.model_args, self.iter_num, self.best_val_loss = init_model(
                 self.tokenizer,
-                self.init_from,
+                transformer_config,
+                self.config,
+                init_from=self.init_from,
                 resume_path=checkpoint_path,
                 device=str(self.device)
             )
         else:
             self.model, self.model_args, self.iter_num, self.best_val_loss = init_model(
                 self.tokenizer,
-                self.init_from,
-                device=str(self.device),
-                config_overrides=self.config_overrides
+                transformer_config,
+                self.config,
+                init_from=self.init_from,
+                device=str(self.device)
             )
 
         # Crop block size if needed

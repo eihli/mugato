@@ -46,24 +46,18 @@ def tokenize(tokenizer: Any, sample: Any) -> tuple[Timesteps, Timesteps]:
     ]
     observation_data = list(zip(*observation_tokens, strict=False))
     observation_tokens_list = observation_data[0]
-    observation_min = observation_data[1]
-    observation_max = observation_data[2]
     goal_tokens = [
         tokenizer.encode_continuous(torch.from_numpy(goal))
         for goal in sample.observations["desired_goal"][:-1]
     ]
     goal_data = list(zip(*goal_tokens, strict=False))
     goal_tokens_list = goal_data[0]
-    goal_min = goal_data[1]
-    goal_max = goal_data[2]
     action_tokens = [
         tokenizer.encode_continuous(torch.from_numpy(action))
         for action in sample.actions
     ]
     action_data = list(zip(*action_tokens, strict=False))
     action_tokens_list = action_data[0]
-    action_min = action_data[1]
-    action_max = action_data[2]
     action_tokens_final = [
         torch.concat([tokenizer.encode_discrete([tokenizer.separator]), action])
         for action in action_tokens_list
@@ -92,10 +86,10 @@ def tokenize(tokenizer: Any, sample: Any) -> tuple[Timesteps, Timesteps]:
 def create_dataloader(
     tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
 ) -> DataLoader[Any]:
-    dataset = initialize()
-    dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
+    datasets = initialize()
+    transform_dataset = TransformDataset(datasets[split], partial(tokenize, tokenizer))
     return DataLoader(
-        dataset,
+        transform_dataset,
         batch_size=batch_size,
         collate_fn=partial(
             generic_collate_fn, sequence_length=block_size, mask_keys=["action"]
@@ -106,12 +100,12 @@ def create_dataloader(
 def create_infinite_dataloader(
     tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
 ) -> Any:
-    dataset = initialize()
-    dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
+    datasets = initialize()
+    transform_dataset = TransformDataset(datasets[split], partial(tokenize, tokenizer))
     return infinite_dataloader(
         partial(
             DataLoader,
-            dataset,
+            transform_dataset,
             batch_size=batch_size,
             collate_fn=partial(
                 generic_collate_fn,

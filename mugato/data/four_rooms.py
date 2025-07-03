@@ -48,7 +48,7 @@ for idx, color_name in minigrid.core.constants.IDX_TO_COLOR.items():
     lut[idx] = minigrid.core.constants.COLORS[color_name]
 
 
-def four_rooms_to_rgb(images):
+def four_rooms_to_rgb(images: np.ndarray | torch.Tensor) -> torch.Tensor:
     """Convert discrete "image" observations into actual images.
 
     I'm expecting this will improve our image modality while not losing
@@ -109,10 +109,10 @@ def tokenize(tokenizer: Any, episode: Any) -> tuple[Timesteps, Timesteps]:
 def create_dataloader(
     tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
 ) -> DataLoader[Any]:
-    dataset = initialize()
-    dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
+    datasets = initialize()
+    transform_dataset = TransformDataset(datasets[split], partial(tokenize, tokenizer))
     return DataLoader(
-        dataset,
+        transform_dataset,
         batch_size=batch_size,
         collate_fn=partial(
             generic_collate_fn, sequence_length=block_size, mask_keys=["action"]
@@ -123,12 +123,12 @@ def create_dataloader(
 def create_infinite_dataloader(
     tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
 ) -> Any:
-    dataset = initialize()
-    dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
+    datasets = initialize()
+    transform_dataset = TransformDataset(datasets[split], partial(tokenize, tokenizer))
     return infinite_dataloader(
         partial(
             DataLoader,
-            dataset,
+            transform_dataset,
             batch_size=batch_size,
             collate_fn=partial(
                 generic_collate_fn,

@@ -1,16 +1,16 @@
 import inspect
-import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any, overload
 
 import torch
 import torch.nn as nn
 from timm.models.resnetv2 import ResNetV2
 from torch.nn import functional as F
 
+from mugato.config import MugatoConfig
 from mugato.nano_gpt import GPT, GPTConfig
 from mugato.tokenizer import Tokenizer
-from mugato.utils import data_home, select_device
 
 
 @dataclass
@@ -95,31 +95,9 @@ def sequence(
             return embeddings
 
 
-@dataclass
-class MugatoConfig:
-    device: str = select_device()
-    n_embd: int = 512
-    block_size: int = 1024
-    vocab_size: int = 51281  # text vocab + discrete vocab
-    out_dir: str = os.path.join(data_home, "out")
-
-
 def init_default_config(transformer_model_args: GPTConfig) -> MugatoConfig:
+    """Create a default MugatoConfig."""
     return MugatoConfig()
-
-
-@dataclass
-class TransformerConfig:
-    block_size: int = 1024
-    vocab_size: int = 50257  # tiktoken.get_encoding("r50k_base").n_vocab
-    n_layer: int = 12
-    n_head: int = 12
-    n_embd: int = 768
-    dropout: float = 0.0
-    bias: bool = (
-        True  # True: bias in Linears and LayerNorms, like GPT-2.
-        # False: a bit better and faster
-    )
 
 
 class Mugato(torch.nn.Module):
@@ -152,10 +130,31 @@ class Mugato(torch.nn.Module):
             self.device
         )
 
-    def to(self, device: str | torch.device):
-        self.device = str(device)
-        super().to(device)
-        return self
+    @overload
+    def to(
+        self,
+        device: str | torch.device | int | None = ...,
+        dtype: torch.dtype | None = ...,
+        non_blocking: bool = ...
+    ) -> "Mugato": ...
+
+    @overload
+    def to(self, dtype: torch.dtype, non_blocking: bool = ...) -> "Mugato": ...
+
+    @overload
+    def to(self, tensor: torch.Tensor, non_blocking: bool = ...) -> "Mugato": ...
+
+    def to(self, *args: Any, **kwargs: Any) -> "Mugato":
+        # Extract device if provided as first positional arg
+        if args and isinstance(args[0], str | int | torch.device):
+            device = args[0]
+            if isinstance(device, str | int):
+                self.device = torch.device(device)
+            else:
+                self.device = device
+
+        # Delegate all arguments to parent
+        return super().to(*args, **kwargs)
 
     def forward(
         self,
