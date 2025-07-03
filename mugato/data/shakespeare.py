@@ -1,8 +1,9 @@
 import os
 import re
 from functools import partial
+from typing import Any
 
-import requests
+import requests  # type: ignore
 import torch
 from torch.utils.data import DataLoader
 
@@ -10,7 +11,7 @@ from mugato.data.utils import infinite_dataloader, splits
 from mugato.utils import Timesteps, TransformDataset, data_home, generic_collate_fn
 
 
-def initialize():
+def initialize() -> dict[str, list[str]]:
     shakespeare_filepath = data_home / "shakespeare.txt"
     if not os.path.exists(shakespeare_filepath):
         os.makedirs(data_home, exist_ok=True)
@@ -49,7 +50,7 @@ def initialize():
     }
 
 
-def tokenize(tokenizer, sample):
+def tokenize(tokenizer: Any, sample: str) -> tuple[Timesteps, Timesteps]:
     eot = torch.tensor([[tokenizer.eot_token_id]], dtype=torch.long)
     text = torch.stack([torch.concat([eot, tokenizer.encode_text(sample), eot])])
     xs = Timesteps(
@@ -65,7 +66,9 @@ def tokenize(tokenizer, sample):
     return xs, ys
 
 
-def create_dataloader(tokenizer, batch_size, split="train", block_size=1024):
+def create_dataloader(
+    tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
+) -> DataLoader[Any]:
     dataset = initialize()
     dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
     return DataLoader(
@@ -77,7 +80,9 @@ def create_dataloader(tokenizer, batch_size, split="train", block_size=1024):
     )
 
 
-def create_infinite_dataloader(tokenizer, batch_size, split="train", block_size=1024):
+def create_infinite_dataloader(
+    tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
+) -> Any:
     dataset = initialize()
     dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
     return infinite_dataloader(

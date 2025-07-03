@@ -1,8 +1,10 @@
 import importlib
 import logging
 import pkgutil
+from collections.abc import Callable, Iterator
 from functools import partial
 from itertools import cycle
+from typing import Any
 
 from torch.utils.data import DataLoader
 
@@ -12,7 +14,9 @@ from mugato.utils import TransformDataset, generic_collate_fn
 logger = logging.getLogger(__name__)
 
 
-def splits(dataset, train_split=0.8, val_split=0.9):
+def splits(
+    dataset: Any, train_split: float = 0.8, val_split: float = 0.9
+) -> tuple[Any, Any, Any]:
     num_samples = len(dataset)
     train_split = int(num_samples * train_split)
     val_split = int(num_samples * val_split)
@@ -27,7 +31,7 @@ def splits(dataset, train_split=0.8, val_split=0.9):
 # If one dataset is 100 samples and another is 1000, then the model will
 # see each sample from the 100 sample dataset 10 times by the time it sees
 # each sample of the 1000 sample dataset once.
-def infinite_dataloader(fn):
+def infinite_dataloader(fn: Callable) -> Iterator[Any]:
     it = iter(fn())
     while True:
         try:
@@ -36,7 +40,7 @@ def infinite_dataloader(fn):
             it = iter(fn())
 
 
-def find_datasets():
+def find_datasets() -> list[Any]:
     # If a module in mugato.data has functions for initialize, tokenize,
     # and create_dataloader, then it's considered a dataset.
     datasets = []
@@ -56,7 +60,7 @@ def find_datasets():
     return datasets
 
 
-def initialize_all():
+def initialize_all() -> dict[str, Any]:
     logger.debug("Initializing all datasets")
     dataset_modules = find_datasets()
     logger.debug(f"Found {dataset_modules} dataset modules")
@@ -66,8 +70,8 @@ def initialize_all():
     return datasets
 
 def create_combined_dataloader_from_module(
-    tokenizer, batch_size, split="train", block_size=1024
-):
+    tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
+) -> Iterator[Any]:
     dataset_modules = find_datasets()
     all_dataloaders = []
     for dataset_module in dataset_modules:
@@ -77,7 +81,9 @@ def create_combined_dataloader_from_module(
         all_dataloaders.append(data_loader)
     return cycle(all_dataloaders)
 
-def create_combined_dataloader(tokenizer, batch_size, split="train", block_size=1024):
+def create_combined_dataloader(
+    tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
+) -> Iterator[Any]:
     datasets = initialize_all()
     all_datasets = []
 
