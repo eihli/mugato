@@ -2,18 +2,20 @@ import io
 import os
 import random
 from collections import OrderedDict
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
 import torch.nn.functional as F
-import torchvision.transforms.v2 as transforms
+import torchvision.transforms.v2 as transforms  # type: ignore
 from einops import rearrange
 from IPython.display import Image as IPythonImage
 from IPython.display import display
 from PIL import Image
 from torch.utils.data import Dataset
-from torchvision.transforms.functional import pil_to_tensor
+from torchvision.transforms.functional import pil_to_tensor  # type: ignore
 
 xdg_data_home = Path(
     os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
@@ -27,10 +29,11 @@ denormalize = transforms.Normalize(
 )
 
 
-def as_tensor(x):
+def as_tensor(x: Image.Image | torch.Tensor | Any) -> torch.Tensor:
     if isinstance(x, Image.Image):
-        return pil_to_tensor(x)
-    return x if isinstance(x, torch.Tensor) else torch.tensor(x)
+        result: torch.Tensor = pil_to_tensor(x)  # type: ignore
+        return result
+    return x if isinstance(x, torch.Tensor) else torch.tensor(x)  # type: ignore
 
 
 image_transform = transforms.Compose(
@@ -43,10 +46,10 @@ image_transform = transforms.Compose(
 )
 
 
-def select_device():
+def select_device() -> str:
     try:
-        import torch_xla.core.xla_model as xm
-        return xm.xla_device()  # For GCP TPU
+        import torch_xla.core.xla_model as xm  # type: ignore
+        return str(xm.xla_device())  # For GCP TPU
     except ImportError:
         pass
     if torch.cuda.is_available():
@@ -55,18 +58,18 @@ def select_device():
         device = torch.device("mps")
     else:
         device = torch.device("cpu")
-    return device
+    return str(device)
 
 
 class Timesteps(OrderedDict):
     """An ordered dict of tensors with a `to` method to send them to GPU."""
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.device = "cpu"
 
-    def to(self, device):
-        self.device = device
+    def to(self, device: str | torch.device) -> 'Timesteps':
+        self.device = str(device)
         for k, v in self.items():
             self[k] = v.to(device)
         return self
@@ -75,18 +78,22 @@ class Timesteps(OrderedDict):
 class TransformDataset(Dataset):
     """Wraps transform(...) around calls to __getitem__."""
 
-    def __init__(self, dataset, transform):
+    def __init__(self, dataset: Any, transform: Callable) -> None:
         self.dataset = dataset
         self.transform = transform
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.dataset)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx: int) -> Any:
         return self.transform(self.dataset[idx])
 
 
-def generic_collate_fn(batch, sequence_length=1024, mask_keys=None):
+def generic_collate_fn(
+    batch: list[tuple],
+    sequence_length: int = 1024,
+    mask_keys: list[str] | None = None
+) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], dict[str, torch.Tensor]]:
     if mask_keys is None:
         mask_keys = []
 
@@ -119,25 +126,31 @@ def generic_collate_fn(batch, sequence_length=1024, mask_keys=None):
 #
 # These helpers pick a random index for an episode from the sample
 # and then slice up to the greatest index that's within our max sequence length.
-def episode_num_tokens(sample):
+def episode_num_tokens(sample: dict[str, torch.Tensor]) -> int:
     return sum([len(v[0]) for v in sample.values()])
 
 
-def sample_num_tokens(sample):
+def sample_num_tokens(sample: dict[str, torch.Tensor]) -> int:
     return episode_num_tokens(sample) * next(iter(sample.values())).size(0)
 
 
-def sequence_episode_capacity(sequence_length, sample):
+def sequence_episode_capacity(
+    sequence_length: int, sample: dict[str, torch.Tensor]
+) -> int:
     return sequence_length // episode_num_tokens(sample)
 
 
-def random_episode_start_index(sequence_length, sample):
+def random_episode_start_index(
+    sequence_length: int, sample: dict[str, torch.Tensor]
+) -> int:
     n_eps = next(iter(sample.values())).size(0)
     cap = min(n_eps, sequence_episode_capacity(sequence_length, sample))
     return random.randint(0, n_eps - cap)
 
 
-def slice_to_context_window(sequence_length, sample):
+def slice_to_context_window(
+    sequence_length: int, sample: dict[str, torch.Tensor]
+) -> Timesteps:
     result = Timesteps()
     n = random_episode_start_index(sequence_length, sample)
     m = sequence_episode_capacity(sequence_length, sample)
@@ -152,15 +165,18 @@ def slice_to_context_window(sequence_length, sample):
     return result
 
 
-def pad(batch, padding_value=0):
+def pad(
+    batch: list[dict[str, torch.Tensor]], padding_value: int = 0
+) -> dict[str, torch.Tensor]:
     """A specific-to-μGATO padding.
 
     Expects a *list of OrderedDict* (this is important).
     """
-    padded = {}
+    padded: dict[str, list[torch.Tensor]] = {}
     for k, _ in batch[0].items():
         episode_length = max(sample[k].size(0) for sample in batch)
         token_length = max(sample[k].size(1) for sample in batch)
+        padded[k] = []
         for sample in batch:
             pad = (
                 0,
@@ -170,12 +186,11 @@ def pad(batch, padding_value=0):
                 0,
                 episode_length - sample[k].size(0),
             )
-            padded[k] = padded.get(k, [])
             padded[k].append(F.pad(sample[k], pad, value=0))
     return Timesteps([(k, torch.stack(v)) for k, v in padded.items()])
 
 
-def mask(batch, mask_keys):
+def mask(batch: list[dict[str, torch.Tensor]], mask_keys: list[str]) -> Timesteps:
     result = Timesteps()
     for k, _ in batch[0].items():
         episode_lengths = [sample[k].size(0) for sample in batch]
@@ -187,7 +202,7 @@ def mask(batch, mask_keys):
     return result
 
 
-def tensor_as_gif(images):
+def tensor_as_gif(images: torch.Tensor) -> None:
     if images.is_cuda:
         images = images.cpu()
     images_np = images.numpy()  # Shape: (16, 3, 192, 192)
@@ -213,13 +228,17 @@ def tensor_as_gif(images):
     display(IPythonImage(data=buffer.getvalue(), format="gif"))
 
 
-def images_to_patches(images, patch_size=16):
+def images_to_patches(images: torch.Tensor, patch_size: int = 16) -> torch.Tensor:
     return rearrange(
         images, "c (h s1) (w s2) -> (h w) (c s1 s2)", s1=patch_size, s2=patch_size
     )
 
 
-def patches_to_images(patches, image_shape, patch_size=16):
+def patches_to_images(
+    patches: torch.Tensor,
+    image_shape: tuple[int, int, int],
+    patch_size: int = 16
+) -> torch.Tensor:
     channels, height, width = image_shape
     patch_height = height // patch_size
     patch_width = width // patch_size
@@ -234,7 +253,7 @@ def patches_to_images(patches, image_shape, patch_size=16):
     return reconstructed
 
 
-def normalize_to_between_minus_one_plus_one(t: torch.Tensor):
+def normalize_to_between_minus_one_plus_one(t: torch.Tensor) -> torch.Tensor:
     min_val, max_val = t.min(), t.max()
     if min_val == max_val:
         return torch.zeros_like(t)
@@ -242,7 +261,9 @@ def normalize_to_between_minus_one_plus_one(t: torch.Tensor):
     return normalized
 
 
-def apply_along_dimension(func, dim, tensor):
+def apply_along_dimension(
+    func: Callable, dim: int, tensor: torch.Tensor
+) -> torch.Tensor:
     tensor = tensor.transpose(0, dim)
     shape = tensor.shape
     tensor = tensor.reshape(shape[0], -1)
@@ -251,7 +272,7 @@ def apply_along_dimension(func, dim, tensor):
     return result
 
 
-def discretize(x):
+def discretize(x: torch.Tensor | Any) -> list[int]:
     x = as_tensor(x)
     bins = torch.linspace(x.min(), x.max(), steps=1023)
     tokens = torch.bucketize(x, bins)
@@ -259,38 +280,38 @@ def discretize(x):
 
 
 # This is going to be a lossy decode. Nothing you can do about that.
-def undiscretize(x, scaled_min, scaled_max):
+def undiscretize(x: list[int], scaled_min: float, scaled_max: float) -> torch.Tensor:
     bins = torch.linspace(scaled_min, scaled_max, steps=1023)
     return bins[x]
 
 
-def mu_law_encode(x, M=256, mu=100):
+def mu_law_encode(x: torch.Tensor | Any, M: int = 256, mu: int = 100) -> torch.Tensor:
     x = as_tensor(x)
-    M = torch.tensor(M, dtype=x.dtype)
-    mu = torch.tensor(mu, dtype=x.dtype)
-    x_mu = torch.sign(x) * torch.log(torch.abs(x) * mu + 1.0)
-    x_mu = x_mu / torch.log(M * mu + 1.0)
+    M_tensor = torch.tensor(M, dtype=x.dtype)
+    mu_tensor = torch.tensor(mu, dtype=x.dtype)
+    x_mu = torch.sign(x) * torch.log(torch.abs(x) * mu_tensor + 1.0)
+    x_mu = x_mu / torch.log(M_tensor * mu_tensor + 1.0)
     return x_mu
 
 
-def mu_law_decode(x_mu, M=256, mu=100):
-    M = torch.tensor(M, dtype=x_mu.dtype)
-    mu = torch.tensor(mu, dtype=x_mu.dtype)
+def mu_law_decode(x_mu: torch.Tensor, M: int = 256, mu: int = 100) -> torch.Tensor:
+    M_tensor = torch.tensor(M, dtype=x_mu.dtype)
+    mu_tensor = torch.tensor(mu, dtype=x_mu.dtype)
     x = (
         torch.sign(x_mu)
-        * (torch.exp(torch.abs(x_mu) * torch.log(M * mu + 1.0)) - 1.0)
-        / mu
+        * (torch.exp(torch.abs(x_mu) * torch.log(M_tensor * mu_tensor + 1.0)) - 1.0)
+        / mu_tensor
     )
     return x
 
 
-def clamp(x):
+def clamp(x: torch.Tensor) -> torch.Tensor:
     return torch.clamp(x, -1, 1)
 
 
-def interleave(tensors):
+def interleave(tensors: list[torch.Tensor]) -> torch.Tensor:
     return torch.cat(tensors, dim=1)
 
 
-def deinterleave(splits, tensors):
+def deinterleave(splits: list[int], tensors: torch.Tensor) -> tuple[torch.Tensor, ...]:
     return torch.split(tensors, splits, dim=1)

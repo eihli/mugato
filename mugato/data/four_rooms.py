@@ -1,7 +1,8 @@
 from functools import partial
+from typing import Any
 
-import minari
-import minigrid
+import minari  # type: ignore
+import minigrid  # type: ignore
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -15,7 +16,7 @@ from mugato.utils import (
 )
 
 
-def initialize():
+def initialize() -> dict[str, Any]:
     # See: https://minari.farama.org/api/minari_dataset/minari_dataset/
     # You can't slice a Minari Dataset. But you can set the episode_indices.
     train_data = minari.load_dataset("D4RL/minigrid/fourrooms-v0", download=True)
@@ -58,7 +59,7 @@ def four_rooms_to_rgb(images):
     return torch.from_numpy(lut[images[:, :, :, 1]]).permute(0, 3, 1, 2)
 
 
-def tokenize(tokenizer, episode):
+def tokenize(tokenizer: Any, episode: Any) -> tuple[Timesteps, Timesteps]:
     # slice to -1 on all observations because we have 1 more observations than actions.
     mission_tokens = [
         tokenizer.encode_text(mission)
@@ -105,7 +106,9 @@ def tokenize(tokenizer, episode):
     return xs, ys
 
 
-def create_dataloader(tokenizer, batch_size, split="train", block_size=1024):
+def create_dataloader(
+    tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
+) -> DataLoader[Any]:
     dataset = initialize()
     dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
     return DataLoader(
@@ -117,7 +120,9 @@ def create_dataloader(tokenizer, batch_size, split="train", block_size=1024):
     )
 
 
-def create_infinite_dataloader(tokenizer, batch_size, split="train", block_size=1024):
+def create_infinite_dataloader(
+    tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
+) -> Any:
     dataset = initialize()
     dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
     return infinite_dataloader(

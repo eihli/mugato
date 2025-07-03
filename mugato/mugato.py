@@ -3,23 +3,22 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass
 
-import tiktoken
 import torch
 import torch.nn as nn
 from timm.models.resnetv2 import ResNetV2
 from torch.nn import functional as F
 
-from mugato.nano_gpt import GPTConfig
+from mugato.nano_gpt import GPT, GPTConfig
 from mugato.tokenizer import Tokenizer
 from mugato.utils import data_home, select_device
 
 
 @dataclass
 class Embedder:
-    lookup_embedding: Callable
-    image_embedding: Callable
+    lookup_embedding: nn.Embedding
+    image_embedding: nn.Module
 
-    def embed(self, data):
+    def embed(self, data: torch.Tensor) -> torch.Tensor:
         """Determines modality of data and returns appropriate embedding.
 
         The size of the lookup embedding table is the combined size of
@@ -37,7 +36,7 @@ class Embedder:
             # where 768 = 3 * 16 * 16 (channels * patch_height * patch_width)
             # Reshape to (B*E*T, 3, 16, 16) for ResNet processing
             images = data.view(B * E * T, 3, 16, 16)
-            embeddings = self.image_embedding(images)
+            embeddings: torch.Tensor = self.image_embedding(images)
             return embeddings.view(B, E, T, n_embd)
         else:
             # Zero grad dummy pass for image params
@@ -46,20 +45,31 @@ class Embedder:
             # iteration before starting a new one. This error indicates that
             # your module has parameters that were not used in producing loss.
             dummy = sum(p.sum() * 0 for p in self.image_embedding.parameters())
-            return (
-                self.lookup_embedding(data.view(B * E * T)).view(B, E, T, n_embd)
-                + dummy
-            )
+            lookup_result: torch.Tensor = self.lookup_embedding(
+                data.view(B * E * T)
+            ).view(B, E, T, n_embd)
+            return lookup_result + dummy
 
-def sequence(embedder, xs, ys=None, ms=None, sequence_length=1024, pad=True):
+def sequence(
+    embedder: Embedder,
+    xs: dict[str, torch.Tensor],
+    ys: dict[str, torch.Tensor] | None = None,
+    ms: dict[str, torch.Tensor] | None = None,
+    sequence_length: int = 1024,
+    pad: bool = True
+) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     embeddings = torch.concat([embedder.embed(v) for k, v in xs.items()], dim=2)
     B, E, T, C = embeddings.shape
     embeddings = embeddings.view(B, E * T, C)
     if ys is not None:
         targets = torch.concat([v for _, v in ys.items()], dim=2)
-        masks = torch.concat([v for _, v in ms.items()], dim=2)
         targets = targets.view(B, E * T)
-        masks = masks.view(B, E * T)
+
+        if ms is not None:
+            masks = torch.concat([v for _, v in ms.items()], dim=2)
+            masks = masks.view(B, E * T)
+        else:
+            masks = torch.ones_like(targets, dtype=torch.float)
         if pad:
             return (
                 F.pad(
@@ -95,11 +105,7 @@ class MugatoConfig:
 
 
 def init_default_config(transformer_model_args: GPTConfig) -> MugatoConfig:
-    text_tokenizer = tiktoken.get_encoding("r50k_base")
-    tokenizer = Tokenizer(text_tokenizer)
-    return MugatoConfig(
-        tokenizer=tokenizer,
-    )
+    return MugatoConfig()
 
 
 @dataclass
@@ -120,7 +126,7 @@ class Mugato(torch.nn.Module):
     def __init__(
         self,
         tokenizer: Tokenizer,
-        sequence_model: nn.Module,
+        sequence_model: GPT,
         config: MugatoConfig,
     ):
         super().__init__()
@@ -141,13 +147,21 @@ class Mugato(torch.nn.Module):
         # TODO:
         # Since we're doing our own embedding, we need to handle our own
         # position embedding.
-        self.transformer = sequence_model  # TODO: rename to sequence_model?
+        self.sequence_model: GPT = sequence_model
         self.lm_head = torch.nn.Linear(self.config.n_embd, self.config.vocab_size).to(
             self.device
         )
 
-    def forward(self, xs, ys=None, ms=None, pad=True, sequence: Callable = sequence):
+    def forward(
+        self,
+        xs: dict[str, torch.Tensor],
+        ys: dict[str, torch.Tensor] | None = None,
+        ms: dict[str, torch.Tensor] | None = None,
+        pad: bool = True,
+        sequence: Callable = sequence
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         if ys is not None:
+            assert ms is not None
             tok_emb, ys, ms = sequence(
                 self.embedder,
                 xs,
@@ -156,13 +170,17 @@ class Mugato(torch.nn.Module):
                 pad=pad,
                 sequence_length=self.config.block_size,
             )
+            # After sequence call, these are definitely tensors, not None or dicts
+            assert isinstance(ys, torch.Tensor)
+            assert isinstance(ms, torch.Tensor)
+
             b, t, c = tok_emb.size()
             pos = torch.arange(0, t, dtype=torch.long, device=self.device)  # shape (t)
-            pos_emb = self.transformer.wpe(
+            pos_emb = self.sequence_model.transformer.wpe(  # type: ignore
                 pos
             )  # position embeddings of shape (t, n_embd)
-            xs = self.transformer.drop(tok_emb + pos_emb)
-            for block in self.transformer.h:
+            xs = self.sequence_model.transformer.drop(tok_emb + pos_emb)  # type: ignore
+            for block in self.sequence_model.transformer.h:  # type: ignore
                 xs = block(xs)
             logits = self.lm_head(xs)
             loss = F.cross_entropy(
@@ -174,17 +192,23 @@ class Mugato(torch.nn.Module):
             tok_emb = sequence(self.embedder, xs, pad=pad)
             b, t, c = tok_emb.size()
             pos = torch.arange(0, t, dtype=torch.long, device=self.device)  # shape (t)
-            pos_emb = self.transformer.wpe(
+            pos_emb = self.sequence_model.transformer.wpe(  # type: ignore
                 pos
             )  # position embeddings of shape (t, n_embd)
-            xs = self.transformer.drop(tok_emb + pos_emb)
-            for block in self.transformer.h:
+            xs = self.sequence_model.transformer.drop(tok_emb + pos_emb)  # type: ignore
+            for block in self.sequence_model.transformer.h:  # type: ignore
                 xs = block(xs)
             logits = self.lm_head(xs)
             loss = None
         return logits, loss
 
-    def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
+    def configure_optimizers(
+        self,
+        weight_decay: float,
+        learning_rate: float,
+        betas: tuple[float, float],
+        device_type: str,
+    ) -> torch.optim.AdamW:
         # start with all of the candidate parameters
         param_dict = dict(self.named_parameters())
         # filter out those that do not require grad
@@ -219,7 +243,7 @@ class Mugato(torch.nn.Module):
         print(f"using fused AdamW: {use_fused}")
         return optimizer
 
-    def get_num_params(self, non_embedding=True):
+    def get_num_params(self, non_embedding: bool = True) -> int:
         """
         Return the number of parameters in the model.
         For non-embedding count (default), the position embeddings get subtracted.
@@ -228,10 +252,10 @@ class Mugato(torch.nn.Module):
         """
         n_params = sum(p.numel() for p in self.parameters())
         if non_embedding:
-            n_params -= self.transformer.wpe.weight.numel()
+            n_params -= self.sequence_model.transformer.wpe.weight.numel()  # type: ignore
         return n_params
 
-    def estimate_mfu(self, fwdbwd_per_iter, dt):
+    def estimate_mfu(self, fwdbwd_per_iter: int, dt: float) -> float:
         """estimate model flops utilization (MFU) in units of A100 bfloat16 peak FLOPS
 
         Estimate written for transformer as sequence model.

@@ -12,6 +12,7 @@ Credit to Andrej Karpathy. This code is adapted from [nanoGPT](https://github.co
 import inspect
 import math
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -21,18 +22,18 @@ from torch.nn import functional as F
 class LayerNorm(nn.Module):
     """LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False"""
 
-    def __init__(self, ndim, bias):
+    def __init__(self, ndim: int, bias: bool) -> None:
         super().__init__()
         self.weight = nn.Parameter(torch.ones(ndim))
         self.bias = nn.Parameter(torch.zeros(ndim)) if bias else None
 
-    def forward(self, input):
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
 
 class CausalSelfAttention(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, config: 'GPTConfig') -> None:
         super().__init__()
         assert config.n_embd % config.n_head == 0
         # key, query, value projections for all heads, but in a batch
@@ -60,7 +61,7 @@ class CausalSelfAttention(nn.Module):
                 ),
             )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, T, C = (
             x.size()
         )  # batch size, sequence length, embedding dimensionality (n_embd)
@@ -93,7 +94,7 @@ class CausalSelfAttention(nn.Module):
         else:
             # manual implementation of attention
             att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
-            att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))
+            att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))  # type: ignore
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
             y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
@@ -108,14 +109,14 @@ class CausalSelfAttention(nn.Module):
 
 class MLP(nn.Module):
 
-    def __init__(self, config):
+    def __init__(self, config: 'GPTConfig') -> None:
         super().__init__()
         self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd, bias=config.bias)
         self.gelu = nn.GELU()
         self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd, bias=config.bias)
         self.dropout = nn.Dropout(config.dropout)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.c_fc(x)
         x = self.gelu(x)
         x = self.c_proj(x)
@@ -124,14 +125,14 @@ class MLP(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: 'GPTConfig') -> None:
         super().__init__()
         self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
         self.attn = CausalSelfAttention(config)
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.attn(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
@@ -155,7 +156,7 @@ class GPTConfig:
 
 
 class GPT(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config: GPTConfig) -> None:
         super().__init__()
         assert config.vocab_size is not None
         assert config.block_size is not None
@@ -173,7 +174,7 @@ class GPT(nn.Module):
         # "UserWarning: functional_call was passed multiple values for tied weights.
         # This behavior is deprecated and will be an error in future versions"
         # not 100% sure what this is, so far seems to be harmless. TODO investigate
-        self.transformer.wte.weight = (
+        self.transformer.wte.weight = (  # type: ignore
             self.lm_head.weight
         )  # https://paperswithcode.com/method/weight-tying
 
@@ -189,7 +190,7 @@ class GPT(nn.Module):
         # report number of parameters
         print(f"number of parameters: {self.get_num_params() / 1e6:.2f}M")
 
-    def get_num_params(self, non_embedding=True):
+    def get_num_params(self, non_embedding: bool = True) -> int:
         """
         Return the number of parameters in the model.
         For non-embedding count (default), the position embeddings get subtracted.
@@ -198,10 +199,10 @@ class GPT(nn.Module):
         """
         n_params = sum(p.numel() for p in self.parameters())
         if non_embedding:
-            n_params -= self.transformer.wpe.weight.numel()
+            n_params -= self.transformer.wpe.weight.numel()  # type: ignore
         return n_params
 
-    def _init_weights(self, module):
+    def _init_weights(self, module: nn.Module) -> None:
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
             if module.bias is not None:
@@ -209,17 +210,22 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx=None, targemaets=None, emb=None):
+    def forward(
+        self,
+        idx: torch.Tensor | None = None,
+        targets: torch.Tensor | None = None,
+        emb: torch.Tensor | None = None
+    ) -> torch.Tensor:
         # Here's a modification to Karpathy's version.
         # We want to calculate our own embeddings, outside of this forward method.
         assert (
             idx is not None or emb is not None
         ), "Must provide either inputs or embeddings."
-        if idx is None:
-            idx = emb
-        device = idx.device
 
         if emb is None:
+            # Using token indices - need to compute embeddings
+            assert idx is not None, "idx must be provided when emb is None"
+            device = idx.device
             b, t = idx.size()
             assert (
                 t <= self.config.block_size
@@ -230,42 +236,48 @@ class GPT(nn.Module):
             pos = torch.arange(0, t, dtype=torch.long, device=device)  # shape (t)
 
             # forward the GPT model itself
-            tok_emb = self.transformer.wte(
+            tok_emb = self.transformer.wte(  # type: ignore
                 idx
             )  # token embeddings of shape (b, t, n_embd)
-            pos_emb = self.transformer.wpe(
+            pos_emb = self.transformer.wpe(  # type: ignore
                 pos
             )  # position embeddings of shape (t, n_embd)
-            x = self.transformer.drop(tok_emb + pos_emb)
+            x = self.transformer.drop(tok_emb + pos_emb)  # type: ignore
         else:
-            b, t, c = idx.size()
+            # Using pre-computed embeddings
+            device = emb.device
+            b, t, c = emb.size()
             x = emb
 
-        for block in self.transformer.h:
+        for block in self.transformer.h:  # type: ignore
             x = block(x)
-        x = self.transformer.ln_f(x)
-        return x
+        x = self.transformer.ln_f(x)  # type: ignore
+        return x  # type: ignore
 
-    def crop_block_size(self, block_size):
+    def crop_block_size(self, block_size: int) -> None:
         # model surgery to decrease the block size if necessary
         # e.g. we may load the GPT2 pretrained model checkpoint (block size 1024)
         # but want to use a smaller block size for some smaller, simpler model
         assert block_size <= self.config.block_size
         self.config.block_size = block_size
-        self.transformer.wpe.weight = nn.Parameter(
-            self.transformer.wpe.weight[:block_size]
+        self.transformer.wpe.weight = nn.Parameter(  # type: ignore
+            self.transformer.wpe.weight[:block_size]  # type: ignore
         )
-        for block in self.transformer.h:
+        for block in self.transformer.h:  # type: ignore
             if hasattr(block.attn, "bias"):
                 block.attn.bias = block.attn.bias[:, :, :block_size, :block_size]
 
     @classmethod
-    def from_pretrained(cls, model_type, override_args=None):
+    def from_pretrained(
+        cls,
+        model_type: str,
+        override_args: dict[str, Any] | None = None
+    ) -> 'GPT':
         assert model_type in {"gpt2", "gpt2-medium", "gpt2-large", "gpt2-xl"}
         override_args = override_args or {}  # default to empty dict
         # only dropout can be overridden see more notes below
         assert all(k == "dropout" for k in override_args)
-        from transformers import GPT2LMHeadModel
+        from transformers import GPT2LMHeadModel  # type: ignore
 
         print(f"loading weights from pretrained gpt: {model_type}")
 
@@ -285,12 +297,12 @@ class GPT(nn.Module):
             print(f"overriding dropout rate to {override_args['dropout']}")
             config_args["dropout"] = override_args["dropout"]
         # create a from-scratch initialized minGPT model
-        config = GPTConfig(**config_args)
+        config = GPTConfig(**config_args)  # type: ignore
         model = GPT(config)
         sd = model.state_dict()
-        sd_keys = sd.keys()
+        sd_keys_raw = sd.keys()
         sd_keys = [
-            k for k in sd_keys if not k.endswith(".attn.bias")
+            k for k in sd_keys_raw if not k.endswith(".attn.bias")
         ]  # discard this mask / buffer, not a param
 
         # init a huggingface/transformers model
@@ -332,7 +344,13 @@ class GPT(nn.Module):
 
         return model
 
-    def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
+    def configure_optimizers(
+        self,
+        weight_decay: float,
+        learning_rate: float,
+        betas: tuple[float, float],
+        device_type: str
+    ) -> torch.optim.AdamW:
         # start with all of the candidate parameters
         param_dict = dict(self.named_parameters())
         # filter out those that do not require grad
@@ -367,7 +385,7 @@ class GPT(nn.Module):
         print(f"using fused AdamW: {use_fused}")
         return optimizer
 
-    def estimate_mfu(self, fwdbwd_per_iter, dt):
+    def estimate_mfu(self, fwdbwd_per_iter: int, dt: float) -> float:
         """estimate model flops utilization (MFU) in units of A100 bfloat16
         peak FLOPS"""
         # first estimate the number of flops we do per iteration.
@@ -385,7 +403,13 @@ class GPT(nn.Module):
         return mfu
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
+    def generate(
+        self,
+        idx: torch.Tensor,
+        max_new_tokens: int,
+        temperature: float = 1.0,
+        top_k: int | None = None
+    ) -> torch.Tensor:
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t))
         and complete

@@ -1,15 +1,16 @@
 import random
 from functools import partial
+from typing import Any
 
 import torch
-from datasets import load_dataset
+from datasets import load_dataset  # type: ignore
 from torch.utils.data import DataLoader
 
 from mugato.data.utils import infinite_dataloader
 from mugato.utils import Timesteps, TransformDataset, generic_collate_fn
 
 
-def initialize():
+def initialize() -> dict[str, Any]:
     dataset = load_dataset("Salesforce/wikitext", "wikitext-103-raw-v1")
     return {
         "train": dataset["train"],
@@ -18,7 +19,7 @@ def initialize():
     }
 
 
-def tokenize(tokenizer, sample, block_size=1024):
+def tokenize(tokenizer: Any, sample: Any, block_size: int = 1024) -> tuple[Timesteps, Timesteps]:
     eot = torch.tensor([[tokenizer.eot_token_id]], dtype=torch.long)
     text = sample["text"]
     if len(text) > block_size:
@@ -47,7 +48,9 @@ def tokenize(tokenizer, sample, block_size=1024):
     return xs, ys
 
 
-def create_dataloader(tokenizer, batch_size, split="train", block_size=1024):
+def create_dataloader(
+    tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
+) -> DataLoader[Any]:
     dataset = initialize()
     dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
     return DataLoader(
@@ -59,7 +62,9 @@ def create_dataloader(tokenizer, batch_size, split="train", block_size=1024):
     )
 
 
-def create_infinite_dataloader(tokenizer, batch_size, split="train", block_size=1024):
+def create_infinite_dataloader(
+    tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
+) -> Any:
     dataset = initialize()
     dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
     return infinite_dataloader(

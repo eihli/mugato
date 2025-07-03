@@ -12,10 +12,9 @@ from pathlib import Path
 from typing import Any
 
 import torch
-from torch import nn
 
 from mugato.mugato import Mugato, MugatoConfig, TransformerConfig
-from mugato.nano_gpt import GPT, Block
+from mugato.nano_gpt import GPT, GPTConfig
 
 # Default transformer configuration
 block_size = 768
@@ -50,19 +49,24 @@ def _as_abspath(path: str | None) -> Path | None:
     return None
 
 
-def create_transformer(config: TransformerConfig) -> nn.ModuleDict:
+def create_transformer(config: TransformerConfig) -> GPT:
     """Create a transformer model using the given configuration."""
-    return nn.ModuleDict({
-        "wpe": nn.Embedding(config.block_size, config.n_embd),
-        "drop": nn.Dropout(config.dropout),
-        "h": nn.ModuleList(
-            [Block(config) for _ in range(config.n_layer)]
-        ),
-    })
+    # Convert TransformerConfig to GPTConfig for compatibility
+    gpt_config = GPTConfig(
+        block_size=config.block_size,
+        vocab_size=config.vocab_size,
+        n_layer=config.n_layer,
+        n_head=config.n_head,
+        n_embd=config.n_embd,
+        dropout=config.dropout,
+        bias=config.bias
+    )
+
+    return GPT(gpt_config)
 
 
 def init_from_scratch(
-    tokenizer, config_overrides: dict[str, Any] | None = None
+    tokenizer: Any, config_overrides: dict[str, Any] | None = None
 ) -> tuple[Mugato, TransformerConfig, MugatoConfig]:
     """Initialize a new model from scratch with optional configuration overrides."""
     # Apply any overrides to the default configuration
@@ -77,8 +81,22 @@ def init_from_scratch(
                 mugato_args[k] = v
 
     # Create configurations
-    transformer_config = TransformerConfig(**model_args)
-    mugato_config = MugatoConfig(**mugato_args)
+    transformer_config = TransformerConfig(
+        block_size=int(model_args["block_size"]),
+        vocab_size=int(model_args["vocab_size"]),
+        n_layer=int(model_args["n_layer"]),
+        n_head=int(model_args["n_head"]),
+        n_embd=int(model_args["n_embd"]),
+        dropout=float(model_args["dropout"]),
+        bias=bool(model_args["bias"])
+    )
+    mugato_config = MugatoConfig(
+        device=str(mugato_args.get("device", "cpu")),
+        n_embd=int(mugato_args.get("n_embd", 512)),
+        block_size=int(mugato_args.get("block_size", 1024)),
+        vocab_size=int(mugato_args.get("vocab_size", 51281)),
+        out_dir=str(mugato_args.get("out_dir", "/tmp"))
+    )
 
     # Create transformer and model
     transformer = create_transformer(transformer_config)
@@ -88,7 +106,7 @@ def init_from_scratch(
 
 
 def init_from_resume(
-    tokenizer, checkpoint_path: str, device: str = "cpu"
+    tokenizer: Any, checkpoint_path: str, device: str = "cpu"
 ) -> tuple[Mugato, dict[str, Any], int, float]:
     """Resume training from a checkpoint."""
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
@@ -100,9 +118,23 @@ def init_from_resume(
         model_args[k] = checkpoint_model_args[k]
 
     # Create the model
-    transformer_config = TransformerConfig(**model_args)
+    transformer_config = TransformerConfig(
+        block_size=int(model_args["block_size"]),
+        vocab_size=int(model_args["vocab_size"]),
+        n_layer=int(model_args["n_layer"]),
+        n_head=int(model_args["n_head"]),
+        n_embd=int(model_args["n_embd"]),
+        dropout=float(model_args["dropout"]),
+        bias=bool(model_args["bias"])
+    )
     transformer = create_transformer(transformer_config)
-    mugato_config = MugatoConfig(**mugato_model_args)
+    mugato_config = MugatoConfig(
+        device=str(mugato_model_args.get("device", "cpu")),
+        n_embd=int(mugato_model_args.get("n_embd", 512)),
+        block_size=int(mugato_model_args.get("block_size", 1024)),
+        vocab_size=int(mugato_model_args.get("vocab_size", 51281)),
+        out_dir=str(mugato_model_args.get("out_dir", "/tmp"))
+    )
     model = Mugato(tokenizer, transformer, mugato_config)
 
     # Load the state dict
@@ -123,7 +155,7 @@ def init_from_resume(
 
 
 def init_from_gpt2(
-    tokenizer, model_type: str, override_args: dict[str, Any] | None = None
+    tokenizer: Any, model_type: str, override_args: dict[str, Any] | None = None
 ) -> tuple[GPT, dict[str, Any]]:
     """Initialize from OpenAI GPT-2 weights."""
     override_args = override_args or {}
@@ -138,7 +170,7 @@ def init_from_gpt2(
 
 
 def init_model(
-    tokenizer,
+    tokenizer: Any,
     init_from: str = "scratch",
     resume_path: str | None = None,
     gpt2_model_type: str | None = None,
@@ -163,25 +195,25 @@ def init_model(
     best_val_loss = float('inf')
 
     if init_from == "scratch":
-        model, _, _ = init_from_scratch(tokenizer, config_overrides)
-        return model, transformer_model_args, iter_num, best_val_loss
+        mugato_model, _, _ = init_from_scratch(tokenizer, config_overrides)
+        return mugato_model, transformer_model_args, iter_num, best_val_loss
 
     elif init_from == "resume":
         if not resume_path:
             raise ValueError("resume_path must be provided when init_from is 'resume'")
-        model, checkpoint, iter_num, best_val_loss = init_from_resume(
+        mugato_model, checkpoint, iter_num, best_val_loss = init_from_resume(
             tokenizer, resume_path, device
         )
-        return model, transformer_model_args, iter_num, best_val_loss
+        return mugato_model, transformer_model_args, iter_num, best_val_loss
 
     elif init_from.startswith("gpt2"):
         if not gpt2_model_type:
             # Use init_from as model type if not explicitly provided
             gpt2_model_type = init_from
-        model, updated_model_args = init_from_gpt2(
+        gpt_model, updated_model_args = init_from_gpt2(
             tokenizer, gpt2_model_type, config_overrides
         )
-        return model, updated_model_args, iter_num, best_val_loss
+        return gpt_model, updated_model_args, iter_num, best_val_loss
 
     else:
         raise ValueError(
@@ -210,12 +242,8 @@ def crop_block_size(
             model_args["block_size"] = block_size
     elif isinstance(model, Mugato):
         if block_size < model.config.block_size:
-            model.transformer.wpe.weight = nn.Parameter(
-                model.transformer.wpe.weight[:block_size]
-            )
-            for block in model.transformer.h:
-                if hasattr(block.attn, "bias"):
-                    block.attn.bias = block.attn.bias[:, :, :block_size, :block_size]
+            # Mugato's sequence_model is a GPT, so delegate to its crop method
+            model.sequence_model.crop_block_size(block_size)
             model.config.block_size = block_size
             model_args["block_size"] = block_size
 

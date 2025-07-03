@@ -36,6 +36,8 @@ dependencies = [
     "matplotlib>=3.10.1",
     "torchrl>=0.7.2",
     "ipython>=9.2.0",
+    "pytest>=8.3.5",
+    "transformers>=4.53.0",
 ]
 
 [project.optional-dependencies]
@@ -94,3 +96,13 @@ filterwarnings = [
 ]
 # By default, exclude slow tests
 addopts = "-m 'not slow'"
+
+[dependency-groups]
+dev = [
+    "ipympl>=0.9.7",
+    "jupyter>=1.1.1",
+    "lab>=8.4",
+    "mypy>=1.15.0",
+    "ruff>=0.11.7",
+    "types-tqdm>=4.67.0.20250516",
+]

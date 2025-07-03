@@ -3,6 +3,7 @@ import os
 import time
 from contextlib import nullcontext
 from datetime import datetime
+from typing import Any
 
 import matplotlib.pyplot as plt
 import torch
@@ -11,7 +12,8 @@ from tqdm import tqdm
 
 from mugato.data.utils import create_combined_dataloader_from_module
 from mugato.models.transformer import crop_block_size, get_learning_rate, init_model
-from mugato.mugato import MugatoConfig
+from mugato.mugato import Mugato, MugatoConfig
+from mugato.nano_gpt import GPT
 
 
 class Trainer:
@@ -20,7 +22,7 @@ class Trainer:
     def __init__(
         self,
         config: MugatoConfig,
-        tokenizer,
+        tokenizer: Any,
         # Training params
         batch_size: int = 6,
         max_iters: int = 6000,
@@ -43,27 +45,31 @@ class Trainer:
         dtype: str = "float16",
         compile_model: bool = False,
         # Checkpointing
-        out_dir: str = None,
+        out_dir: str | None = None,
         always_save_checkpoint: bool = True,
         init_from: str = "scratch",
-        resume_path: str = None,
+        resume_path: str | None = None,
         # Logging
         wandb_log: bool = False,
         wandb_project: str = "mugato",
-        wandb_run_name: str = None,
+        wandb_run_name: str | None = None,
         # Config overrides
-        config_overrides: dict = None,
+        config_overrides: dict[str, Any] | None = None,
         # DDP
         ddp: bool = False,
         ddp_rank: int = 0,
         ddp_local_rank: int = 0,
         ddp_world_size: int = 1,
-        device_type: str = None,
+        device_type: str | None = None,
         master_process: bool = True,
     ):
         self.config = config
         self.tokenizer = tokenizer
         self.device = torch.device(config.device)
+
+        # Model will be initialized later - can be various types due to compilation/DDP
+        self.model: Mugato | GPT | torch.nn.Module | Any
+        self.unoptimized_model: Mugato | GPT | torch.nn.Module | Any | None = None
 
         # Detect device type if not provided
         if device_type is None:
@@ -147,15 +153,16 @@ class Trainer:
             self._init_wandb()
 
         # Tracking
-        self.losses = []
-        self.metrics = {}
+        self.losses: list[float] = []
+        self.metrics: dict[str, Any] = {}
         self.running_mfu = -1.0
 
-    def _init_model(self):
+    def _init_model(self) -> None:
         """Initialize the model based on init_from strategy"""
         if self.init_from == "resume":
+            default_out_dir = self.out_dir or "/tmp/mugato"
             checkpoint_path = self.resume_path or os.path.join(
-                self.out_dir, f"{datetime.now().strftime('%Y-%m-%d')}-ckpt.pt"
+                default_out_dir, f"{datetime.now().strftime('%Y-%m-%d')}-ckpt.pt"
             )
             self.model, self.model_args, self.iter_num, self.best_val_loss = init_model(
                 self.tokenizer,
@@ -179,7 +186,7 @@ class Trainer:
 
         self.model.to(self.device)
 
-    def _init_dataloaders(self):
+    def _init_dataloaders(self) -> None:
         """Initialize train/val/test dataloaders"""
         self.train_dataloader = iter(
             create_combined_dataloader_from_module(
@@ -206,7 +213,7 @@ class Trainer:
             )
         )
 
-    def _setup_training_context(self):
+    def _setup_training_context(self) -> None:
         """Setup autocast context and grad scaler"""
         ptdtype = {
             "float32": torch.float32,
@@ -223,32 +230,42 @@ class Trainer:
         # Initialize GradScaler for float16
         self.scaler = torch.amp.GradScaler(enabled=(self.dtype == "float16"))
 
-    def _init_optimizer(self):
+    def _init_optimizer(self) -> None:
         """Initialize the optimizer"""
-        self.optimizer = self.model.configure_optimizers(
-            self.weight_decay,
-            self.learning_rate,
-            (self.beta1, self.beta2),
-            self.device_type
-        )
+        # Only some models have configure_optimizers method
+        if hasattr(self.model, 'configure_optimizers'):
+            self.optimizer = self.model.configure_optimizers(  # type: ignore
+                self.weight_decay,
+                self.learning_rate,
+                (self.beta1, self.beta2),
+                self.device_type
+            )
+        else:
+            # Fallback optimizer configuration
+            self.optimizer = torch.optim.AdamW(
+                self.model.parameters(),
+                lr=self.learning_rate,
+                betas=(self.beta1, self.beta2),
+                weight_decay=self.weight_decay
+            )
 
         if self.init_from == "resume" and self.resume_path:
             checkpoint = torch.load(self.resume_path, map_location=self.device)
             self.optimizer.load_state_dict(checkpoint["optimizer"])
             del checkpoint  # free up memory
 
-    def _compile(self):
+    def _compile(self) -> None:
         """Compile the model with PyTorch 2.0"""
         print("compiling the model... (takes a ~minute)")
         torch._dynamo.config.optimize_ddp = False
         self.unoptimized_model = self.model
         self.model = torch.compile(self.model)
 
-    def _wrap_ddp(self):
+    def _wrap_ddp(self) -> None:
         """Wrap model in DistributedDataParallel"""
         self.model = DDP(self.model, device_ids=[self.ddp_local_rank])
 
-    def _init_wandb(self):
+    def _init_wandb(self) -> None:
         """Initialize Weights & Biases logging"""
         import wandb
         wandb.init(
@@ -257,7 +274,7 @@ class Trainer:
             config=self.config_overrides
         )
 
-    def get_batch(self, split):
+    def get_batch(self, split: str) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Get a batch of data from the specified split"""
         if split == "train":
             X, Y, M = next(next(self.train_dataloader))
@@ -269,7 +286,7 @@ class Trainer:
         return X, Y, M
 
     @torch.no_grad()
-    def estimate_loss(self):
+    def estimate_loss(self) -> dict[str, float]:
         """Estimate loss over train and validation sets"""
         out = {}
         self.model.eval()
@@ -280,33 +297,34 @@ class Trainer:
                 with self.ctx:
                     logits, loss = self.model(X, Y, M)
                 losses[k] = loss.item()
-            out[split] = losses.mean()
+            out[split] = losses.mean().item()
         self.model.train()
         return out
 
-    def save_checkpoint(self, losses):
+    def save_checkpoint(self, losses: dict[str, float]) -> None:
         """Save a checkpoint"""
         if self.ddp:
-            raw_model = self.model.module
+            raw_model = self.model.module  # type: ignore
         else:
             raw_model = self.model
 
         checkpoint = {
-            "model": raw_model.state_dict(),
+            "model": raw_model.state_dict(),  # type: ignore
             "optimizer": self.optimizer.state_dict(),
             "model_args": self.model_args,
             "iter_num": self.iter_num,
             "best_val_loss": self.best_val_loss,
             "config": self.config_overrides,
         }
-        print(f"saving checkpoint to {self.out_dir}")
-        os.makedirs(self.out_dir, exist_ok=True)
+        default_out_dir = self.out_dir or "/tmp/mugato"
+        print(f"saving checkpoint to {default_out_dir}")
+        os.makedirs(default_out_dir, exist_ok=True)
         torch.save(checkpoint, os.path.join(
-            self.out_dir,
+            default_out_dir,
             f"{datetime.now().strftime('%Y-%m-%d')}-ckpt.pt"),
         )
 
-    def train(self, eval_only=False):
+    def train(self, eval_only: bool = False) -> dict[str, Any]:
         """Main training loop with all features"""
         # Get initial batch
         X, Y, M = self.get_batch("train")
@@ -314,7 +332,7 @@ class Trainer:
         local_iter_num = 0
 
         if self.ddp:
-            raw_model = self.model.module
+            raw_model = self.model.module  # type: ignore
         else:
             raw_model = self.model
 
@@ -389,9 +407,13 @@ class Trainer:
                 lossf = loss.item() * self.gradient_accumulation_steps
                 self.losses.append(lossf)  # Track losses for plotting
                 if local_iter_num >= 5:  # Let training settle
-                    mfu = raw_model.estimate_mfu(
-                        self.batch_size * self.gradient_accumulation_steps, dt
-                    )
+                    # Only GPT models have estimate_mfu method
+                    if hasattr(raw_model, 'estimate_mfu'):
+                        mfu = raw_model.estimate_mfu(  # type: ignore
+                            self.batch_size * self.gradient_accumulation_steps, dt
+                        )
+                    else:
+                        mfu = -1.0  # Fallback for models without MFU estimation
                     self.running_mfu = (
                         mfu if self.running_mfu == -1.0
                         else 0.9 * self.running_mfu + 0.1 * mfu
@@ -410,14 +432,15 @@ class Trainer:
 
         # Plot loss if we have losses
         if self.losses and self.master_process:
-            os.makedirs(self.out_dir, exist_ok=True)
+            default_out_dir = self.out_dir or "/tmp/mugato"
+            os.makedirs(default_out_dir, exist_ok=True)
             plt.figure(figsize=(10, 6))
             plt.plot(self.losses)
             plt.xlabel("Iteration")
             plt.ylabel("Loss")
             plt.title("Training Loss")
             plt.grid(True)
-            out_path = os.path.join(self.out_dir, "loss.png")
+            out_path = os.path.join(default_out_dir, "loss.png")
             plt.savefig(out_path)
             plt.close()
 

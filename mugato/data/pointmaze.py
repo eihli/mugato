@@ -1,6 +1,7 @@
 from functools import partial
+from typing import Any
 
-import minari
+import minari  # type: ignore
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -13,7 +14,7 @@ from mugato.utils import (
 )
 
 
-def initialize():
+def initialize() -> dict[str, Any]:
     # See: https://minari.farama.org/api/minari_dataset/minari_dataset/
     # You can't slice a Minari Dataset. But you can set the episode_indices.
     train_data = minari.load_dataset("D4RL/pointmaze/open-v2", download=True)
@@ -38,32 +39,39 @@ def initialize():
     }
 
 
-def tokenize(tokenizer, sample):
+def tokenize(tokenizer: Any, sample: Any) -> tuple[Timesteps, Timesteps]:
     observation_tokens = [
         tokenizer.encode_continuous(torch.from_numpy(observation))
         for observation in sample.observations["observation"][:-1]
     ]
-    observation_tokens, observation_min, observation_max = zip(
-        *observation_tokens, strict=False
-    )
+    observation_data = list(zip(*observation_tokens, strict=False))
+    observation_tokens_list = observation_data[0]
+    observation_min = observation_data[1]
+    observation_max = observation_data[2]
     goal_tokens = [
         tokenizer.encode_continuous(torch.from_numpy(goal))
         for goal in sample.observations["desired_goal"][:-1]
     ]
-    goal_tokens, goal_min, goal_max = zip(*goal_tokens, strict=False)
+    goal_data = list(zip(*goal_tokens, strict=False))
+    goal_tokens_list = goal_data[0]
+    goal_min = goal_data[1]
+    goal_max = goal_data[2]
     action_tokens = [
         tokenizer.encode_continuous(torch.from_numpy(action))
         for action in sample.actions
     ]
-    action_tokens, action_min, action_max = zip(*action_tokens, strict=False)
-    action_tokens = [
+    action_data = list(zip(*action_tokens, strict=False))
+    action_tokens_list = action_data[0]
+    action_min = action_data[1]
+    action_max = action_data[2]
+    action_tokens_final = [
         torch.concat([tokenizer.encode_discrete([tokenizer.separator]), action])
-        for action in action_tokens
+        for action in action_tokens_list
     ]
 
-    goal = torch.stack(goal_tokens)
-    observation = torch.stack(observation_tokens)
-    action = torch.stack(action_tokens)
+    goal = torch.stack(goal_tokens_list)
+    observation = torch.stack(observation_tokens_list)
+    action = torch.stack(action_tokens_final)
     xs = Timesteps(
         {
             "goal": goal,
@@ -81,7 +89,9 @@ def tokenize(tokenizer, sample):
     return xs, ys
 
 
-def create_dataloader(tokenizer, batch_size, split="train", block_size=1024):
+def create_dataloader(
+    tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
+) -> DataLoader[Any]:
     dataset = initialize()
     dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
     return DataLoader(
@@ -93,7 +103,9 @@ def create_dataloader(tokenizer, batch_size, split="train", block_size=1024):
     )
 
 
-def create_infinite_dataloader(tokenizer, batch_size, split="train", block_size=1024):
+def create_infinite_dataloader(
+    tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
+) -> Any:
     dataset = initialize()
     dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
     return infinite_dataloader(
