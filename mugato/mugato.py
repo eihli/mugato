@@ -152,6 +152,11 @@ class Mugato(torch.nn.Module):
             self.device
         )
 
+    def to(self, device: str | torch.device):
+        self.device = str(device)
+        super().to(device)
+        return self
+
     def forward(
         self,
         xs: dict[str, torch.Tensor],
