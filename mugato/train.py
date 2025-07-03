@@ -278,7 +278,10 @@ class Trainer:
 
     def _wrap_ddp(self) -> None:
         """Wrap model in DistributedDataParallel"""
-        self.model = DDP(self.model, device_ids=[self.ddp_local_rank])
+        self.model = DDP(
+            self.model,
+            device_ids=[self.ddp_local_rank]
+        )
 
     def _init_wandb(self) -> None:
         """Initialize Weights & Biases logging"""

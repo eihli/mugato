@@ -40,7 +40,7 @@ def _as_abspath(path: str | None) -> Path | None:
 def create_transformer(config: TransformerConfig) -> GPT:
     """Create a transformer model using the given configuration."""
     # Convert TransformerConfig to GPTConfig for compatibility
-    logger.info("Using GPT2 as sequence model with config: {config:!r}")
+    logger.info(f"Using GPT2 as sequence model with config: {config}")
     gpt_config = GPTConfig(
         block_size=config.block_size,
         vocab_size=config.vocab_size,
@@ -51,7 +51,57 @@ def create_transformer(config: TransformerConfig) -> GPT:
         bias=config.bias
     )
 
-    return GPT(gpt_config)
+    model = GPT(gpt_config)
+
+    # Remove unused components to prevent DDP parameter synchronization issues
+    # μGATO uses its own embedder and doesn't use GPT's token embeddings or
+    # final layer norm
+    _remove_unused_gpt_components(model)
+
+    return model
+
+
+def _remove_unused_gpt_components(model: GPT) -> None:
+    """Remove GPT components that are unused by μGATO to prevent DDP issues.
+
+    μGATO bypasses:
+    - transformer.wte (token embeddings) - uses its own embedder instead
+    - transformer.ln_f (final layer norm) - goes directly to lm_head
+    - lm_head - uses its own lm_head
+    """
+    # Replace token embeddings with a dummy that returns zeros
+    # This maintains the interface but ensures no gradients flow through unused params
+    original_wte = model.transformer.wte
+    assert isinstance(original_wte, torch.nn.Embedding), "Expected wte to be an Embedding layer"
+
+    class DummyEmbedding(torch.nn.Module):
+        def __init__(self, vocab_size: int, embed_dim: int):
+            super().__init__()
+            # No parameters - just return zeros
+            self.vocab_size = vocab_size
+            self.embed_dim = embed_dim
+
+        def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+            # Return zeros with the expected shape
+            return torch.zeros(*input_ids.shape, self.embed_dim,
+                             device=input_ids.device, dtype=torch.float32)
+
+    model.transformer.wte = DummyEmbedding(
+        original_wte.num_embeddings,
+        original_wte.embedding_dim
+    )
+
+    # Keep the final layer norm - Mugato now uses it before its lm_head
+    # This ensures gradients flow through ln_f for DDP compatibility
+
+    # Remove the lm_head since μGATO uses its own
+    # Set to Identity to make it clear it's not used
+    model.lm_head = torch.nn.Identity()  # type: ignore[assignment]
+
+    logger.info(
+        "Removed unused GPT components (wte, lm_head) to prevent DDP issues. "
+        "Keeping ln_f as it's now used by Mugato."
+    )
 
 
 def init_from_scratch(

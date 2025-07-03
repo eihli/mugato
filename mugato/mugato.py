@@ -186,6 +186,8 @@ class Mugato(torch.nn.Module):
             xs = self.sequence_model.transformer.drop(tok_emb + pos_emb)  # type: ignore
             for block in self.sequence_model.transformer.h:  # type: ignore
                 xs = block(xs)
+            # Apply final layer norm from GPT before our lm_head
+            xs = self.sequence_model.transformer.ln_f(xs)  # type: ignore
             logits = self.lm_head(xs)
             loss = F.cross_entropy(
                 logits.view(-1, logits.size(-1)), ys.view(-1), reduction="none"
@@ -202,6 +204,8 @@ class Mugato(torch.nn.Module):
             xs = self.sequence_model.transformer.drop(tok_emb + pos_emb)  # type: ignore
             for block in self.sequence_model.transformer.h:  # type: ignore
                 xs = block(xs)
+            # Apply final layer norm from GPT before our lm_head
+            xs = self.sequence_model.transformer.ln_f(xs)  # type: ignore
             logits = self.lm_head(xs)
             loss = None
         return logits, loss

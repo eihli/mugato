@@ -28,7 +28,7 @@ def initialize() -> dict[str, list[str]]:
     # seems like that's less than the 1024 tokens I was using for my
     # initial experiments on small hardware.
     characters_lines = re.split(r"\n\s*\n", data.strip())
-    MIN_WORDS_PER_BATCH = 150
+    MIN_WORDS_PER_BATCH = 50
     sample = [characters_lines[0]]
     num_words_in_sample = len(characters_lines[0].split())
     text_dataset = []

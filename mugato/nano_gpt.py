@@ -103,8 +103,9 @@ class CausalSelfAttention(nn.Module):
         )  # re-assemble all head outputs side by side
 
         # output projection
-        y = self.resid_dropout(self.c_proj(y))
-        return y
+        y = self.c_proj(y)
+        result: torch.Tensor = self.resid_dropout(y)
+        return result
 
 
 class MLP(nn.Module):

@@ -25,7 +25,9 @@ def test_mugato_block_size_too_small() -> None:
         )
     ]
     try:
-        xs, ys, ms = generic_collate_fn(batch_too_long, BLOCK_SIZE-1, mask_keys=["text"])
+        xs, ys, ms = generic_collate_fn(
+            batch_too_long, BLOCK_SIZE-1, mask_keys=["text"]
+        )
     except ValueError as e:
         assert "No samples in batch could fit" in str(e)
     else:
@@ -53,7 +55,9 @@ def test_mugato_block_size_acceptable() -> None:
         )
     ]
     try:
-        xs, ys, ms = generic_collate_fn(batch_too_long, BLOCK_SIZE+1, mask_keys=["text"])
+        xs, ys, ms = generic_collate_fn(
+            batch_too_long, BLOCK_SIZE+1, mask_keys=["text"]
+        )
     except ValueError as e:
         raise AssertionError(f"Expected generic_collate_fn to not raise {e}")\
             from e
