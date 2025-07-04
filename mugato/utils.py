@@ -2,7 +2,7 @@ import io
 import os
 import random
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -112,18 +112,18 @@ class TransformDataset(Dataset):
 
 
 def generic_collate_fn(
-    batch: list[tuple],
+    batch: list[tuple[Timesteps, Timesteps]],
     sequence_length: int = 1024,
     mask_keys: list[str] | None = None
-) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+) -> tuple[Timesteps, Timesteps, Timesteps]:
     if mask_keys is None:
         mask_keys = []
 
     # Slice samples and filter out empty ones
-    sliced = []
-    for xs, ys in batch:
-        xs_sliced = slice_to_context_window(sequence_length, xs)
-        ys_sliced = slice_to_context_window(sequence_length, ys)
+    sliced: list[tuple[Timesteps, Timesteps]] = []
+    for x, y in batch:
+        xs_sliced = slice_to_context_window(sequence_length, x)
+        ys_sliced = slice_to_context_window(sequence_length, y)
 
         # Check if the sample has at least one episode
         # (check the first value since all keys should have same episode count)
@@ -137,8 +137,9 @@ def generic_collate_fn(
         )
 
     # Process the non-empty samples
-    xs, ys = list(zip(*sliced, strict=False))
-    xs, ys, ms = pad(xs), pad(ys), mask(ys, mask_keys)
+    xs = collate_and_pad_timesteps(tuple(x[0] for x in sliced))
+    ys = collate_and_pad_timesteps(tuple(y[1] for y in sliced))
+    ms = mask([y[1] for y in sliced], mask_keys)
     return xs, ys, ms
 
 
@@ -187,12 +188,20 @@ def slice_to_context_window(
     return result
 
 
-def pad(
-    batch: list[dict[str, torch.Tensor]], padding_value: int = 0
-) -> dict[str, torch.Tensor]:
-    """A specific-to-μGATO padding.
+def collate_and_pad_timesteps(
+    batch: Sequence[Timesteps], padding_value: int = 0
+) -> Timesteps:
+    """Collate and pad a batch of μGATO timesteps to uniform dimensions.
 
-    Expects a *list of OrderedDict* (this is important).
+    Finds the maximum episode and token lengths across the batch and pads
+    all samples to these dimensions.
+
+    Args:
+        batch: List of Timesteps (OrderedDict) to collate and pad
+        padding_value: Value to use for padding (default: 0)
+
+    Returns:
+        Timesteps with all samples padded to uniform dimensions
     """
     padded: dict[str, list[torch.Tensor]] = {}
     for k, _ in batch[0].items():
@@ -212,7 +221,7 @@ def pad(
     return Timesteps([(k, torch.stack(v)) for k, v in padded.items()])
 
 
-def mask(batch: list[dict[str, torch.Tensor]], mask_keys: list[str]) -> Timesteps:
+def mask(batch: list[Timesteps], mask_keys: list[str]) -> Timesteps:
     result = Timesteps()
     for k, _ in batch[0].items():
         episode_lengths = [sample[k].size(0) for sample in batch]
