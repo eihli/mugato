@@ -1,11 +1,17 @@
 """
 Transformer model implementation for Mugato.
 
+There's, unfortunately, a tight coupling between the Mugato architecture and any
+sequence model implementation, so in this "transformer"-named module you're
+going to see Mugato-specific code that works with a transformer model.
+
 This module contains the transformer-specific code that works with the Mugato
 architecture.
-It provides functions to initialize and configure a transformer model that can be used
-as the sequence model within Mugato.
+
+It provides functions to initialize and configure a transformer model that can
+be used as the sequence model within Mugato.
 """
+import logging
 import math
 import os
 from pathlib import Path
@@ -13,34 +19,16 @@ from typing import Any
 
 import torch
 
-from mugato.mugato import Mugato, MugatoConfig, TransformerConfig
+from mugato.config import (
+    ModelArgs,
+    MugatoConfig,
+    TransformerConfig,
+)
+from mugato.mugato import Mugato
 from mugato.nano_gpt import GPT, GPTConfig
+from mugato.tokenizer import Tokenizer
 
-# Default transformer configuration
-block_size = 768
-n_layer = 6
-n_head = 4
-n_embd = 512
-dropout = 0.0  # for pretraining 0 is good, for finetuning try 0.1+
-bias = False  # do we use bias inside LayerNorm and Linear layers?
-
-
-transformer_model_args = {
-    "n_layer": n_layer,
-    "n_head": n_head,
-    "n_embd": n_embd,
-    "block_size": block_size,
-    "bias": bias,
-    "vocab_size": 50257,  # tiktoken.get_encoding("r50k_base").n_vocab
-    "dropout": dropout,
-}
-
-mugato_model_args = {
-    "n_embd": n_embd,
-    "block_size": block_size,
-    "vocab_size": 51281,  # text vocab + discrete vocab
-}
-
+logger = logging.getLogger(__name__)
 
 def _as_abspath(path: str | None) -> Path | None:
     """Convert a string path to an absolute Path object if it's not None."""
@@ -52,6 +40,7 @@ def _as_abspath(path: str | None) -> Path | None:
 def create_transformer(config: TransformerConfig) -> GPT:
     """Create a transformer model using the given configuration."""
     # Convert TransformerConfig to GPTConfig for compatibility
+    logger.info(f"Using GPT2 as sequence model with config: {config}")
     gpt_config = GPTConfig(
         block_size=config.block_size,
         vocab_size=config.vocab_size,
@@ -62,80 +51,106 @@ def create_transformer(config: TransformerConfig) -> GPT:
         bias=config.bias
     )
 
-    return GPT(gpt_config)
+    model = GPT(gpt_config)
+
+    # Remove unused components to prevent DDP parameter synchronization issues
+    # μGATO uses its own embedder and doesn't use GPT's token embeddings or
+    # final layer norm
+    _remove_unused_gpt_components(model)
+
+    return model
+
+
+def _remove_unused_gpt_components(model: GPT) -> None:
+    """Remove GPT components that are unused by μGATO to prevent DDP issues.
+
+    μGATO bypasses:
+    - transformer.wte (token embeddings) - uses its own embedder instead
+    - transformer.ln_f (final layer norm) - goes directly to lm_head
+    - lm_head - uses its own lm_head
+    """
+    # Replace token embeddings with a dummy that returns zeros
+    # This maintains the interface but ensures no gradients flow through unused params
+    original_wte = model.transformer.wte
+    assert isinstance(original_wte, torch.nn.Embedding), "Expected wte to be an Embedding layer"
+
+    class DummyEmbedding(torch.nn.Module):
+        def __init__(self, vocab_size: int, embed_dim: int):
+            super().__init__()
+            # No parameters - just return zeros
+            self.vocab_size = vocab_size
+            self.embed_dim = embed_dim
+
+        def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+            # Return zeros with the expected shape
+            return torch.zeros(*input_ids.shape, self.embed_dim,
+                             device=input_ids.device, dtype=torch.float32)
+
+    model.transformer.wte = DummyEmbedding(
+        original_wte.num_embeddings,
+        original_wte.embedding_dim
+    )
+
+    # Keep the final layer norm - Mugato now uses it before its lm_head
+    # This ensures gradients flow through ln_f for DDP compatibility
+
+    # Remove the lm_head since μGATO uses its own
+    # Set to Identity to make it clear it's not used
+    model.lm_head = torch.nn.Identity()  # type: ignore[assignment]
+
+    logger.info(
+        "Removed unused GPT components (wte, lm_head) to prevent DDP issues. "
+        "Keeping ln_f as it's now used by Mugato."
+    )
 
 
 def init_from_scratch(
-    tokenizer: Any, config_overrides: dict[str, Any] | None = None
-) -> tuple[Mugato, TransformerConfig, MugatoConfig]:
-    """Initialize a new model from scratch with optional configuration overrides."""
-    # Apply any overrides to the default configuration
-    model_args = transformer_model_args.copy()
-    mugato_args = mugato_model_args.copy()
-
-    if config_overrides:
-        for k, v in config_overrides.items():
-            if k in model_args:
-                model_args[k] = v
-            if k in mugato_args and k in ("n_embd", "block_size", "vocab_size"):
-                mugato_args[k] = v
-
-    # Create configurations
-    transformer_config = TransformerConfig(
-        block_size=int(model_args["block_size"]),
-        vocab_size=int(model_args["vocab_size"]),
-        n_layer=int(model_args["n_layer"]),
-        n_head=int(model_args["n_head"]),
-        n_embd=int(model_args["n_embd"]),
-        dropout=float(model_args["dropout"]),
-        bias=bool(model_args["bias"])
-    )
-    mugato_config = MugatoConfig(
-        device=str(mugato_args.get("device", "cpu")),
-        n_embd=int(mugato_args.get("n_embd", 512)),
-        block_size=int(mugato_args.get("block_size", 1024)),
-        vocab_size=int(mugato_args.get("vocab_size", 51281)),
-        out_dir=str(mugato_args.get("out_dir", "/tmp"))
-    )
-
+    tokenizer: Tokenizer,
+    transformer_config: TransformerConfig,
+    mugato_config: MugatoConfig,
+) -> Mugato:
+    """Initialize a new model from scratch with the given configurations."""
     # Create transformer and model
     transformer = create_transformer(transformer_config)
     model = Mugato(tokenizer, transformer, mugato_config)
-
-    return model, transformer_config, mugato_config
+    return model
 
 
 def init_from_resume(
     tokenizer: Any, checkpoint_path: str, device: str = "cpu"
-) -> tuple[Mugato, dict[str, Any], int, float]:
+) -> tuple[Mugato, ModelArgs, int, float]:
     """Resume training from a checkpoint."""
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
-    checkpoint_model_args = checkpoint["model_args"]
+    model_args = checkpoint["model_args"]
 
-    # Force these config attributes to be equal otherwise we can't resume training
-    model_args = transformer_model_args.copy()
-    for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size"]:
-        model_args[k] = checkpoint_model_args[k]
+    # Extract configs from ModelArgs
+    if isinstance(model_args, dict):
+        # Handle dict format for compatibility during transition
+        # This is temporary and can be removed once all checkpoints use ModelArgs
+        sequence_model_args = TransformerConfig(**model_args)
+        mugato_args = MugatoConfig(
+            device=device,
+            n_embd=sequence_model_args.n_embd,
+            block_size=sequence_model_args.block_size,
+            vocab_size=51281
+        )
+        model_args = ModelArgs(
+            sequence_model_class_name="GPT",
+            sequence_model_args=sequence_model_args,
+            mugato_args=mugato_args
+        )
 
-    # Create the model
-    transformer_config = TransformerConfig(
-        block_size=int(model_args["block_size"]),
-        vocab_size=int(model_args["vocab_size"]),
-        n_layer=int(model_args["n_layer"]),
-        n_head=int(model_args["n_head"]),
-        n_embd=int(model_args["n_embd"]),
-        dropout=float(model_args["dropout"]),
-        bias=bool(model_args["bias"])
-    )
-    transformer = create_transformer(transformer_config)
-    mugato_config = MugatoConfig(
-        device=str(mugato_model_args.get("device", "cpu")),
-        n_embd=int(mugato_model_args.get("n_embd", 512)),
-        block_size=int(mugato_model_args.get("block_size", 1024)),
-        vocab_size=int(mugato_model_args.get("vocab_size", 51281)),
-        out_dir=str(mugato_model_args.get("out_dir", "/tmp"))
-    )
-    model = Mugato(tokenizer, transformer, mugato_config)
+    # Update device in mugato config
+    model_args.mugato_args.device = device
+
+    # Create the model based on sequence model class
+    if model_args.sequence_model_class_name == "GPT":
+        transformer = create_transformer(model_args.sequence_model_args)
+        model = Mugato(tokenizer, transformer, model_args.mugato_args)
+    else:
+        raise ValueError(
+            f"Unknown sequence model: {model_args.sequence_model_class_name}"
+        )
 
     # Load the state dict
     state_dict = checkpoint["model"]
@@ -151,32 +166,39 @@ def init_from_resume(
     iter_num = checkpoint.get("iter_num", 0)
     best_val_loss = checkpoint.get("best_val_loss", float('inf'))
 
-    return model, checkpoint, iter_num, best_val_loss
+    return model, model_args, iter_num, best_val_loss
 
 
 def init_from_gpt2(
     tokenizer: Any, model_type: str, override_args: dict[str, Any] | None = None
-) -> tuple[GPT, dict[str, Any]]:
+) -> tuple[GPT, TransformerConfig]:
     """Initialize from OpenAI GPT-2 weights."""
     override_args = override_args or {}
     model = GPT.from_pretrained(model_type, override_args)
 
-    # Read off the created config params to store in checkpoint correctly
-    updated_model_args = transformer_model_args.copy()
-    for k in ["n_layer", "n_head", "n_embd", "block_size", "bias", "vocab_size"]:
-        updated_model_args[k] = getattr(model.config, k)
+    # Create TransformerConfig from the loaded model
+    transformer_config = TransformerConfig(
+        block_size=model.config.block_size,
+        vocab_size=model.config.vocab_size,
+        n_layer=model.config.n_layer,
+        n_head=model.config.n_head,
+        n_embd=model.config.n_embd,
+        dropout=model.config.dropout,
+        bias=model.config.bias
+    )
 
-    return model, updated_model_args
+    return model, transformer_config
 
 
 def init_model(
     tokenizer: Any,
+    sequence_config: TransformerConfig,
+    model_config: MugatoConfig,
     init_from: str = "scratch",
     resume_path: str | None = None,
     gpt2_model_type: str | None = None,
-    config_overrides: dict[str, Any] | None = None,
     device: str = "cpu"
-) -> tuple[Mugato | GPT, dict[str, Any], int, float]:
+) -> tuple[Mugato, ModelArgs, int, float]:
     """
     Initialize a model based on the specified initialization strategy.
 
@@ -189,31 +211,46 @@ def init_model(
         device: Device to load the model on
 
     Returns:
-        Tuple of (model, model_args, iter_num, best_val_loss)
+        Tuple of (model, config/model_args, iter_num, best_val_loss)
     """
     iter_num = 0
     best_val_loss = float('inf')
 
     if init_from == "scratch":
-        mugato_model, _, _ = init_from_scratch(tokenizer, config_overrides)
-        return mugato_model, transformer_model_args, iter_num, best_val_loss
+        mugato_model = init_from_scratch(
+            tokenizer, sequence_config, model_config
+        )
+        # Create ModelArgs for serialization
+        model_args = ModelArgs(
+            sequence_model_class_name="GPT",
+            sequence_model_args=sequence_config,
+            mugato_args=model_config
+        )
+        return mugato_model, model_args, 0, float('inf')
 
     elif init_from == "resume":
         if not resume_path:
             raise ValueError("resume_path must be provided when init_from is 'resume'")
-        mugato_model, checkpoint, iter_num, best_val_loss = init_from_resume(
+        mugato_model, model_args, iter_num, best_val_loss = init_from_resume(
             tokenizer, resume_path, device
         )
-        return mugato_model, transformer_model_args, iter_num, best_val_loss
+        return mugato_model, model_args, iter_num, best_val_loss
 
     elif init_from.startswith("gpt2"):
         if not gpt2_model_type:
             # Use init_from as model type if not explicitly provided
             gpt2_model_type = init_from
-        gpt_model, updated_model_args = init_from_gpt2(
-            tokenizer, gpt2_model_type, config_overrides
+        gpt_model, transformer_config = init_from_gpt2(
+            tokenizer, gpt2_model_type, None
         )
-        return gpt_model, updated_model_args, iter_num, best_val_loss
+        # Wrap GPT2 in Mugato
+        mugato_model = Mugato(tokenizer, gpt_model, model_config)
+        model_args = ModelArgs(
+            sequence_model_class_name="GPT",
+            sequence_model_args=transformer_config,
+            mugato_args=model_config
+        )
+        return mugato_model, model_args, iter_num, best_val_loss
 
     else:
         raise ValueError(
@@ -223,8 +260,8 @@ def init_model(
 
 
 def crop_block_size(
-    model: Mugato | GPT, block_size: int, model_args: dict[str, Any]
-) -> tuple[Mugato | GPT, dict[str, Any]]:
+    model: Mugato | GPT, block_size: int, model_args: ModelArgs
+) -> tuple[Mugato | GPT, ModelArgs]:
     """
     Crop the model's block size if needed.
 
@@ -239,13 +276,14 @@ def crop_block_size(
     if isinstance(model, GPT):
         if block_size < model.config.block_size:
             model.crop_block_size(block_size)
-            model_args["block_size"] = block_size
+            model_args.sequence_model_args.block_size = block_size
     elif isinstance(model, Mugato):
         if block_size < model.config.block_size:
             # Mugato's sequence_model is a GPT, so delegate to its crop method
             model.sequence_model.crop_block_size(block_size)
             model.config.block_size = block_size
-            model_args["block_size"] = block_size
+            model_args.sequence_model_args.block_size = block_size
+            model_args.mugato_args.block_size = block_size
 
     return model, model_args
 

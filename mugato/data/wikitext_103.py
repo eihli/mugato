@@ -19,7 +19,9 @@ def initialize() -> dict[str, Any]:
     }
 
 
-def tokenize(tokenizer: Any, sample: Any, block_size: int = 1024) -> tuple[Timesteps, Timesteps]:
+def tokenize(
+    tokenizer: Any, sample: Any, block_size: int = 1024
+) -> tuple[Timesteps, Timesteps]:
     eot = torch.tensor([[tokenizer.eot_token_id]], dtype=torch.long)
     text = sample["text"]
     if len(text) > block_size:
@@ -51,10 +53,10 @@ def tokenize(tokenizer: Any, sample: Any, block_size: int = 1024) -> tuple[Times
 def create_dataloader(
     tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
 ) -> DataLoader[Any]:
-    dataset = initialize()
-    dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
+    datasets = initialize()
+    transform_dataset = TransformDataset(datasets[split], partial(tokenize, tokenizer))
     return DataLoader(
-        dataset,
+        transform_dataset,
         batch_size=batch_size,
         collate_fn=partial(
             generic_collate_fn, sequence_length=block_size, mask_keys=["text"]
@@ -65,12 +67,12 @@ def create_dataloader(
 def create_infinite_dataloader(
     tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
 ) -> Any:
-    dataset = initialize()
-    dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
+    datasets = initialize()
+    transform_dataset = TransformDataset(datasets[split], partial(tokenize, tokenizer))
     return infinite_dataloader(
         partial(
             DataLoader,
-            dataset,
+            transform_dataset,
             batch_size=batch_size,
             collate_fn=partial(
                 generic_collate_fn,

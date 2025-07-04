@@ -110,10 +110,10 @@ def tokenize(tokenizer: Any, sample: Any) -> tuple[Timesteps, Timesteps]:
 def create_dataloader(
     tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
 ) -> DataLoader[Any]:
-    dataset = initialize()
-    dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
+    datasets = initialize()
+    transform_dataset = TransformDataset(datasets[split], partial(tokenize, tokenizer))
     return DataLoader(
-        dataset,
+        transform_dataset,
         batch_size=batch_size,
         collate_fn=partial(
             generic_collate_fn, sequence_length=block_size, mask_keys=["answer"]
@@ -123,12 +123,12 @@ def create_dataloader(
 def create_infinite_dataloader(
     tokenizer: Any, batch_size: int, split: str = "train", block_size: int = 1024
 ) -> Any:
-    dataset = initialize()
-    dataset = TransformDataset(dataset[split], partial(tokenize, tokenizer))
+    datasets = initialize()
+    transform_dataset = TransformDataset(datasets[split], partial(tokenize, tokenizer))
     return infinite_dataloader(
         partial(
             DataLoader,
-            dataset,
+            transform_dataset,
             batch_size=batch_size,
             collate_fn=partial(
                 generic_collate_fn,
