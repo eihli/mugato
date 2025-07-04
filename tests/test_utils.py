@@ -4,7 +4,7 @@ import torch
 from mugato.utils import normalize_to_between_minus_one_plus_one
 
 
-def test_normalize_to_between_minus_one_plus_one():
+def test_normalize_to_between_minus_one_plus_one() -> None:
     xs = torch.tensor([-2, -1, 0, 1, 2, 4])
     norm_xs = normalize_to_between_minus_one_plus_one(xs)
     # The relative differences between values should remain the same.

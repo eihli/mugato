@@ -86,13 +86,13 @@ config_keys = [
     for k, v in globals().items()
     if not k.startswith("_") and isinstance(v, int | float | bool | str)
 ]
-device = str(select_device())  # See configurator.py as to why this is a string.
+device_str = str(select_device())  # See configurator.py as to why this is a string.
 exec(open("configurator.py").read())  # overrides from command line or config file
-device = torch.device(device)
+device = torch.device(device_str)
 config = {k: globals()[k] for k in config_keys}  # will be useful for logging
 # -----------------------------------------------------------------------------
 
-def main():
+def main() -> None:
     """Main entry point that handles DDP setup and training"""
     global gradient_accumulation_steps, device
 
@@ -103,8 +103,8 @@ def main():
         ddp_rank = int(os.environ["RANK"])
         ddp_local_rank = int(os.environ["LOCAL_RANK"])
         ddp_world_size = int(os.environ["WORLD_SIZE"])
-        device = f"{device}:{ddp_local_rank}"
-        torch.cuda.set_device(device)
+        device_str = f"{device}:{ddp_local_rank}"
+        torch.cuda.set_device(device_str)
         master_process = ddp_rank == 0
         seed_offset = ddp_rank
         # Scale gradient accumulation by world size

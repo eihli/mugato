@@ -6,11 +6,11 @@ from mugato.tokenizer import Tokenizer
 
 
 @pytest.fixture
-def tokenizer():
+def tokenizer() -> Tokenizer:
     return Tokenizer(tiktoken.get_encoding("r50k_base"))
 
 
-def test_initialize():
+def test_initialize() -> None:
     data = initialize()
     assert "train" in data
     assert "val" in data
@@ -21,7 +21,7 @@ def test_initialize():
     assert len(data["test"]) > 0
 
 
-def test_create_dataloader(tokenizer):
+def test_create_dataloader(tokenizer: Tokenizer) -> None:
     batch_size = 4
     dataloader = create_dataloader(tokenizer, batch_size=batch_size)
 

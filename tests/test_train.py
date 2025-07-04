@@ -11,7 +11,7 @@ from mugato.utils import data_home, select_device
 
 
 @pytest.mark.slow
-def test_trainer_runs_and_outputs():
+def test_trainer_runs_and_outputs() -> None:
     # Use minimal config for rapid test
     config = train.MugatoConfig(
         device=select_device(),
@@ -77,7 +77,7 @@ def test_trainer_runs_and_outputs():
     assert not torch.isnan(torch.tensor(metrics["avg_loss"])), "Average loss is NaN"
 
 @pytest.mark.slow
-def test_shakespeare_training():
+def test_shakespeare_training() -> None:
     """Test training on Shakespeare dataset"""
     config = train.MugatoConfig(
         device=select_device(),

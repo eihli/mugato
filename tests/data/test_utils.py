@@ -12,11 +12,11 @@ from mugato.tokenizer import Tokenizer
 
 
 @pytest.fixture
-def tokenizer():
+def tokenizer() -> Tokenizer:
     return Tokenizer(tiktoken.get_encoding("r50k_base"))
 
 @pytest.mark.slow
-def test_combined_dataloader(tokenizer):
+def test_combined_dataloader(tokenizer: Tokenizer) -> None:
     combined_dataloader = create_combined_dataloader(
         tokenizer, batch_size=4, split="train"
     )

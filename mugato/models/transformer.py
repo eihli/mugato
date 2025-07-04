@@ -72,7 +72,9 @@ def _remove_unused_gpt_components(model: GPT) -> None:
     # Replace token embeddings with a dummy that returns zeros
     # This maintains the interface but ensures no gradients flow through unused params
     original_wte = model.transformer.wte
-    assert isinstance(original_wte, torch.nn.Embedding), "Expected wte to be an Embedding layer"
+    assert isinstance(original_wte, torch.nn.Embedding), (
+        "Expected wte to be an Embedding layer"
+    )
 
     class DummyEmbedding(torch.nn.Module):
         def __init__(self, vocab_size: int, embed_dim: int):

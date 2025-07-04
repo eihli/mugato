@@ -6,11 +6,11 @@ from mugato.tokenizer import Tokenizer
 
 
 @pytest.fixture
-def tokenizer():
+def tokenizer() -> Tokenizer:
     return Tokenizer(tiktoken.get_encoding("r50k_base"))
 
 
-def test_text_tokenization(tokenizer):
+def test_text_tokenization(tokenizer: Tokenizer) -> None:
     text = "Hello, world!"
     tokens = tokenizer.encode_text(text)
     assert torch.equal(tokens, torch.tensor([[15496], [11], [995], [0]]))
@@ -18,7 +18,7 @@ def test_text_tokenization(tokenizer):
     assert decoded == text
 
 
-def test_discrete_tokenization(tokenizer):
+def test_discrete_tokenization(tokenizer: Tokenizer) -> None:
     values = [0, 1, 2, 3]
     tokens = tokenizer.encode_discrete(values)
     # assert torch.equal(tokens, torch.tensor(values).unsqueeze(-1) + tokenizer.n_text)
@@ -27,17 +27,16 @@ def test_discrete_tokenization(tokenizer):
     assert decoded == values
 
 
-def test_continuous_tokenization(tokenizer):
+def test_continuous_tokenization(tokenizer: Tokenizer) -> None:
     values = [-2, -1, 0, 1, 2, 3, 4]
     tokens, min_val, max_val = tokenizer.encode_continuous(values)
-    tokenizer.decode_continuous(tokens, min_val, max_val)
-    decoded = tokenizer.decode_continuous(tokens, min_val, max_val)
+    decoded = tokenizer.decode_continuous(tokens, min_val.item(), max_val.item())
     assert torch.allclose(
         torch.tensor(decoded), torch.tensor(values, dtype=torch.float32), atol=0.1
     )
 
 
-def test_image_tokenization(tokenizer):
+def test_image_tokenization(tokenizer: Tokenizer) -> None:
     # Create dummy 3x192x192 image
     image = torch.rand(3, 192, 192)
     patches = tokenizer.encode_image(image, patch_size=16)
