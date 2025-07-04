@@ -5,3 +5,4 @@ __pycache__
 .virtual_documents
 wandb
 .vscode/
+.contexts
