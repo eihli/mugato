@@ -193,7 +193,7 @@ class Mugato(torch.nn.Module):
                 logits.view(-1, logits.size(-1)), ys.view(-1), reduction="none"
             )
             loss = loss * ms.view(-1)
-            loss = loss.sum() / ms.sum()
+            loss = loss.sum() / (ms.sum() + 1e-8)
         else:
             tok_emb = sequence(self.embedder, xs, pad=pad)
             b, t, c = tok_emb.size()

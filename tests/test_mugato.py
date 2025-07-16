@@ -1,8 +1,25 @@
 import torch
 
 from mugato.data.utils import generic_collate_fn
-from mugato.utils import Timesteps
+from mugato.utils import Timesteps, slice_to_context_window
 
+
+def test_slice_to_context_window() -> None:
+    sample = Timesteps({
+        "text": torch.arange(20).reshape(2, 10, 1),
+        "image": torch.arange(20).reshape(2, 10, 1),
+    })
+    result = slice_to_context_window(15, sample)
+    assert result['text'].shape == (1, 10, 1)
+    assert result['image'].shape == (1, 5, 1)
+
+    sample = Timesteps({
+        "text": torch.arange(4).reshape(2, 2, 1),
+        "image": torch.arange(12).reshape(2, 6, 1),
+    })
+    result = slice_to_context_window(12, sample)
+    assert result['text'].shape == (1, 2, 1)
+    assert result['image'].shape == (1, 6, 1)
 
 def test_mugato_block_size_too_small() -> None:
     """
@@ -29,9 +46,8 @@ def test_mugato_block_size_too_small() -> None:
             batch_too_long, BLOCK_SIZE-1, mask_keys=["text"]
         )
     except ValueError as e:
-        assert "No samples in batch could fit" in str(e)
-    else:
-        raise AssertionError("Expected generic_collate_fn to raise ValueError")
+        raise AssertionError("Expected not to raise. Do the epsilon thing. {e}") from e
+
 
 
 def test_mugato_block_size_acceptable() -> None:

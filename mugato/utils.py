@@ -119,24 +119,12 @@ def generic_collate_fn(
     if mask_keys is None:
         mask_keys = []
 
-    # Slice samples and filter out empty ones
     sliced: list[tuple[Timesteps, Timesteps]] = []
     for x, y in batch:
         xs_sliced = slice_to_context_window(sequence_length, x)
         ys_sliced = slice_to_context_window(sequence_length, y)
+        sliced.append((xs_sliced, ys_sliced))
 
-        # Check if the sample has at least one episode
-        # (check the first value since all keys should have same episode count)
-        if next(iter(xs_sliced.values())).size(0) > 0:
-            sliced.append((xs_sliced, ys_sliced))
-
-    if not sliced:
-        raise ValueError(
-            f"No samples in batch could fit within sequence_length={sequence_length}. "
-            "Consider increasing block_size or using datasets with smaller episodes."
-        )
-
-    # Process the non-empty samples
     xs = collate_and_pad_timesteps(tuple(x[0] for x in sliced))
     ys = collate_and_pad_timesteps(tuple(y[1] for y in sliced))
     ms = mask([y[1] for y in sliced], mask_keys)
@@ -171,17 +159,27 @@ def random_episode_start_index(
     return random.randint(0, n_eps - cap)
 
 
+
 def slice_to_context_window(
     sequence_length: int, sample: dict[str, torch.Tensor]
 ) -> Timesteps:
     result = Timesteps()
     n = random_episode_start_index(sequence_length, sample)
     m = sequence_episode_capacity(sequence_length, sample)
+    # Timesteps of an Episode:
+    # Text-like mission: (Stack the blue box on top of the green box)
+    # Image-like observation
+    # Some continuous valued observations (arm position, rotation, gripper, etc...)
+    #
+    # [Episode, Tokens, Channels]
     if m < 1:
         # Can't fit even one complete episode - return empty sample
         # This maintains structure but with 0 episodes
+        remaining = sequence_length
         for k in sample.keys():
-            result[k] = sample[k][:0]
+            to_take = min(remaining, sample[k].size(1))
+            result[k] = sample[k][[0], :to_take]
+            remaining -= to_take
     else:
         for k in sample.keys():
             result[k] = sample[k][n : n + m]
